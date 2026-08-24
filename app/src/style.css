@@ -1,0 +1,39 @@
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+}
+
+#map {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+}
+
+/* Keep MapLibre's built-in controls clear of notches/home indicators on mobile. */
+.maplibregl-ctrl-top-right {
+  top: env(safe-area-inset-top);
+  right: env(safe-area-inset-right);
+}
+
+.maplibregl-ctrl-bottom-left {
+  bottom: env(safe-area-inset-bottom);
+  left: env(safe-area-inset-left);
+}
+
+.maplibregl-ctrl-bottom-right {
+  bottom: env(safe-area-inset-bottom);
+  right: env(safe-area-inset-right);
+}

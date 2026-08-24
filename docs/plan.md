@@ -1,0 +1,42 @@
+# Current plan
+
+**Status:** Phase 0 - both tracks starting now.
+**Date:** 2026-08-25
+
+## Why this replaces the original reconnaissance plan
+
+The original plan (`docs/archive/original-reconnaissance-plan.md`) sequenced about eight documentation-heavy phases before any visible output. Good instincts (decide from real data, not assumptions) but too much process before anything runs. This doc replaces it as the thing to actually follow. The original is kept for reference only - its sample-area table, freshness-analysis structure, and quality-code questions are still useful *inputs* to Track B below, just not a phase gate.
+
+Two independent tracks run in parallel and converge at one milestone: a real GFSC tile rendered on a real map.
+
+## Track A - Map shell (`app/`)
+
+Goal: a mobile-friendly topo map, no snow data yet.
+
+- MapLibre GL JS + an OSM-based outdoor/topo basemap (exact provider TBD - compare a couple of free options, at least one with contour/hillshade support, and pick one)
+- Pan/zoom, responsive layout, deployable as a static site
+- No dependency on Track B - this can start immediately
+
+## Track B - GFSC reconnaissance (`recon/`)
+
+Goal: understand what the real GFSC data looks like over the Alps + Italian Apennines before committing to a pipeline design.
+
+1. Get Copernicus/WEkEO/CDSE access working (see `docs/spec.md` section 4.1 for links). If access isn't set up yet, this is the literal first step.
+2. Pick 3-4 contrasting sample areas: glaciated high Alps, forested Alpine foothills, Apennines, and one location near an MGRS tile boundary. One recent ~60-90 day window is enough to start - widen later only if something's ambiguous.
+3. Download real GFSC products for those samples directly (no separate catalogue-only pass first - a handful of tiles/dates is nowhere near the 500-products-per-run limit, and downloading gives you the catalogue metadata for free).
+4. Inspect what you actually got: resolution/projection, quality-tier (0-3) distribution, how often cloud/no-data shows up, what a real time series at one point looks like.
+5. Write findings to `recon/findings.md` as short running bullet notes - not a formal report.
+
+## Converge: first real snow tile
+
+Take one real downloaded GFSC raster from Track B, reproject/tile it, and render it as an overlay on the Track A map. This is the first real milestone. It answers most of the remaining open questions from both tracks at once (does the projection actually line up, does the resolution look reasonable at the zoom levels people will actually use, etc).
+
+## After convergence
+
+- Freeze the remaining semantics (AS-OF selection rule, quality-tier handling, staleness thresholds) from what reconnaissance actually showed - see `docs/spec.md` section 15 for the list of open decisions.
+- Pick the rest of the stack: hosted routing API (for the A-to-B planner), geocoder, hosting/data-pipeline shape (a good default: GitHub Actions for the daily GFSC fetch/tile job, object storage for tiles, Netlify for the static frontend + light serverless functions for routing-API calls and point/history queries - Netlify's own scheduled functions are too short-lived, ~10-30s, for the daily data job itself).
+- Build out the rest of `docs/spec.md` in vertical slices: search, OSM object panel + historical chart, A-to-B routing + snow/elevation profile.
+
+## Explicitly not doing yet
+
+Full Europe coverage, user accounts, saved routes, GPX/KML upload, native Android app, offline support. See `docs/spec.md` sections 13-14 for the full list.

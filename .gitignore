@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+.venv/
+recon/.venv/
+
+# build output
+dist/
+build/
+.netlify/
+
+# environment / secrets
+.env
+.env.local
+.env.*.local
+
+# downloaded satellite data - don't commit raw rasters
+recon/data/
+*.tif
+*.tiff
+*.jp2
+
+# vendored HR-WSI client's MGRS tile reference file (~16MB, easily re-fetched -
+# see recon/vendor/hrwsi/README.md)
+recon/vendor/hrwsi/MGRS_tiles.gpkg
+
+# personal Claude Code notes (not shared with the team)
+CLAUDE.local.md
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/
