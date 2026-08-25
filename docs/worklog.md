@@ -46,6 +46,46 @@ Web Mercator XYZ tiles, then add daily fetch, object storage, and publication.
 
 ---
 
+## 2026-08-25 - Deployed to Netlify
+
+**Did:** Connected `app/` to Netlify via its dashboard's GitHub import (base
+directory `app`, build command `npm run build`, publish directory `dist`).
+Set `VITE_MAPTILER_API_KEY` as a Netlify env var across all deploy contexts.
+Site is live at https://spikely.netlify.app; every push to `main` now
+auto-deploys with no manual step. This is the project's first deploy.
+
+**Decided:**
+- Ship now, even with a crazy-basic app, to close the deploy loop end-to-end
+  and unblock inspecting the app on a real phone - more valuable at this
+  stage than waiting for more features.
+- Netlify over Vercel/Cloudflare Pages: for a static Vite build with no
+  backend, all three are effectively equivalent (free, git-connected,
+  auto-HTTPS). Netlify won on zero-preference tie-break, and it was already
+  anticipated in `.gitignore` (`.netlify/`).
+- Dashboard-based git integration over CLI-based deploys, since the goal is
+  hands-off auto-deploy on every push, not one-off manual pushes.
+- Left `VITE_MAPTILER_API_KEY` **unmarked** as a Netlify "secret value" and
+  scoped to **all** deploy contexts with one shared value.
+
+**Rejected:**
+- Marking `VITE_MAPTILER_API_KEY` as a Netlify "secret value" - Vite inlines
+  `VITE_*` vars into the client bundle by design, so Netlify's secret-scanning
+  would fail the build on a value meant to reach the browser. The real access
+  boundary for this key is MapTiler's own domain restriction, not Netlify.
+- Scoping the env var to specific deploy contexts (e.g. separate keys for
+  production vs. deploy previews) - unnecessary while the MapTiler key has no
+  domain restriction yet; would only matter once one is added and it doesn't
+  cover preview URLs.
+- A committed `netlify.toml` - dashboard-configured build settings were
+  simpler for a first deploy; revisit if build config needs to be versioned.
+
+**Open / carried forward:** Set the MapTiler key's allowed-domains restriction
+to `spikely.netlify.app` (and any future custom domain) now that the live
+domain is known. `app/package-lock.json` is still untracked in git; committing
+it would make Netlify's installs reproducible.
+
+---
+
 ## 2026-08-25 - Real pipeline: validated GFSC raster-I/O adapter
 
 **Did:** Added `pipeline/raster_io.py`, which discovers the three required

@@ -4,6 +4,8 @@ A free, mobile-friendly web app showing quasi-real-time Copernicus snow-cover da
 
 **Status:** early planning / prototyping.
 
+**Live:** [spikely.netlify.app](https://spikely.netlify.app) - Netlify auto-deploys `main` on every push, no manual step.
+
 - Product spec: [`docs/spec.md`](docs/spec.md)
 - Current plan: [`docs/plan.md`](docs/plan.md)
 - Working session log (what was done/decided/rejected, and when): [`docs/worklog.md`](docs/worklog.md)

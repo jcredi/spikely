@@ -3,10 +3,11 @@
 All notable changes to this project are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-This project doesn't use version numbers yet (pre-release, no deploy) - entries
-accumulate under [Unreleased] until the first deploy, which becomes `0.1.0`.
+Versioned from `0.1.0` (2026-08-25), the first deploy.
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-08-25
 
 ### Added
 - Production GFSC AS-OF semantic core (`pipeline/asof.py`) with deterministic
@@ -30,6 +31,8 @@ accumulate under [Unreleased] until the first deploy, which becomes `0.1.0`.
 - GFSC reconnaissance (`recon/`): HR-WSI S3 client, 580 downloaded sample
   products across 4 areas, value codebook and data-quality findings
   (`recon/findings.md`).
+- Netlify deployment: `app/` connected to this GitHub repo, auto-deploying
+  `main` to https://spikely.netlify.app on every push.
 
 ### Changed
 - Hillshade layer moved above the snow overlay so shaded relief remains
