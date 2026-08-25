@@ -1,8 +1,10 @@
 # Spikely MVP Product Specification
 
-**Status:** Draft v1.2 - snow-data semantics frozen after reconnaissance
-**Date:** 2026-08-25  
+**Status:** Draft v1.3 - MVP data-pipeline architecture decided, historical map browsing deferred
+**Date:** 2026-08-26  
 **Product stage:** Planning only
+
+**Amendment (v1.3):** Deferred arbitrary historical AS-OF map-date browsing (section 5.3) out of MVP scope; the MVP ships "latest" conditions only, still computed via the frozen section 9.2 AS-OF rule. Decided the MVP data-pipeline/storage architecture: a daily GitHub Actions job renders one static "latest conditions" tile set and republishes it through the existing Netlify frontend deploy - no object storage or on-demand tile-rendering service for now. Set the operating-cost target: free where possible, up to EUR 20/month if it substantially simplifies things. Full reasoning, alternatives considered, and the revisit trigger are in `docs/worklog.md` (2026-08-26). See sections 5.3, 12, 13, and 15.
 
 **Amendment (v1.2):** Froze the MVP snow-data semantics after empirical GFSC reconnaissance: `AT`-based freshness, all-tier quality handling, exact visual/category encoding, a 14-day AS-OF ceiling, and no app-created chart interpolation or carry-forward. See sections 5.2-5.4, 7.1, and 9.2.
 
@@ -123,10 +125,9 @@ The map renderer may display progressively coarser representations at lower zoom
 
 ### 5.3 Latest and historical AS-OF dates
 
-The user must be able to view:
+The user must be able to view the latest available snow conditions.
 
-- the latest available snow conditions;
-- snow conditions **as of a selected historical date**.
+**Deferred for MVP (v1.3):** letting the user pick an arbitrary historical map date is out of MVP scope - see section 15 item 8 and `docs/worklog.md` (2026-08-26) for why and the revisit trigger. "Latest" is itself computed AS-OF today via the same rule below, so the AS-OF mechanics remain frozen and in effect; the OSM-object historical chart (section 7.1) is unaffected and remains required. The rest of this section describes that frozen mechanic, which a later historical map-date feature would reuse unchanged.
 
 A selected date is an **AS-OF date**, not a requirement that every pixel have an observation acquired exactly on that date.
 
@@ -368,9 +369,9 @@ Backend caching, shared precomputed data, and anonymous operational telemetry ar
 
 The app is free to users.
 
-A near-zero-cost deployment should be evaluated, but a modest operating budget is acceptable if it substantially reduces complexity, improves reliability, or avoids building/operating unnecessary infrastructure.
+Operating-cost target (decided 2026-08-26): free where possible; up to EUR 20/month is acceptable if it substantially reduces complexity, improves reliability, or avoids building/operating unnecessary infrastructure.
 
-The first web deployment may use Netlify or an equivalent service for the frontend, but hosting choices are not yet fixed.
+The frontend (`app/`) deploys to Netlify, connected to this GitHub repo and auto-deploying on every push to `main` - see `docs/agent-guide.md` for build config. The MVP data pipeline is a daily GitHub Actions job that renders one static "latest conditions" tile set and republishes it through the same Netlify deploy; no object storage or on-demand tile-rendering service is used for MVP (see section 15 item 8 and `docs/worklog.md`, 2026-08-26).
 
 ## 13. MVP feature scope
 
@@ -379,7 +380,7 @@ The first web deployment may use Netlify or an equivalent service for the fronte
 | Outdoor/topographic map | Required |
 | GFSC snow overlay | Required |
 | Latest snow conditions | Required |
-| Historical AS-OF map date | Required |
+| Historical AS-OF map date | Deferred post-MVP (see section 15 item 8) |
 | Observation freshness visualization | Required |
 | Quality/missing-data handling | Required |
 | Search by name | Required |
@@ -427,8 +428,8 @@ Snow/freshness encoding, quality and categorical-code handling, staleness, prolo
 5. Geocoding/search provider.
 6. Hiking routing provider.
 7. Elevation/DEM source.
-8. Frontend, backend, storage, tiling, and deployment architecture.
-9. Operating-cost target after scale estimates.
+8. **Decided for MVP (2026-08-26):** frontend on Netlify (done, see section 12); data pipeline is a daily GitHub Actions job rendering one static "latest conditions" tile set, republished through the same Netlify deploy - no object storage or on-demand tile-rendering service for MVP. Still open for later: the storage/serving architecture needed to bring back arbitrary historical AS-OF map dates (section 5.3). Leading candidate when that's revisited: a per-day compact raster archive in low/no-egress object storage (e.g. Cloudflare R2) plus a small on-demand tile-rendering service reusing the frozen section 9.2 selection logic, cached aggressively since a historical (date, tile) result never changes once computed. Full reasoning and rejected alternatives in `docs/worklog.md` (2026-08-26).
+9. **Decided for MVP (2026-08-26):** operating-cost target is free where possible, up to EUR 20/month if it substantially simplifies things (see section 12).
 10. Whether raw FSCOG/FSCTOC (20 m) should be added later as an optional higher-resolution layer for terrain where 60 m GFSC proves too coarse.
 
 ## 16. MVP success criteria

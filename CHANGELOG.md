@@ -7,6 +7,23 @@ Versioned from `0.1.0` (2026-08-25), the first deploy.
 
 ## [Unreleased]
 
+### Added
+- GFSC XYZ tile renderer (`pipeline/tiles.py`) that colorizes a merged AS-OF
+  composite per the frozen spec 5.2/5.4 visual encoding (snow-cover ramp,
+  freshness-attenuated alpha, violet cloud, transparent water/stale/no-data)
+  and slices it into standard `{z}/{x}/{y}.png` Web Mercator tiles, skipping
+  fully-transparent ones. Eight focused tests, bringing the pipeline suite to
+  25 tests.
+
+### Changed
+- Spec v1.3: deferred arbitrary historical AS-OF map-date browsing out of MVP
+  scope (OSM-object historical chart is unaffected and stays required).
+  Decided the MVP data-pipeline/storage architecture - a daily GitHub Actions
+  job renders one static "latest conditions" tile set and republishes it
+  through the existing Netlify deploy, no object storage or on-demand
+  tile-rendering service for now - and set the EUR 20/month operating-cost
+  ceiling. See `docs/worklog.md` (2026-08-26) for the full brainstorm.
+
 ## [0.1.0] - 2026-08-25
 
 ### Added

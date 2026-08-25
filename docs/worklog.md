@@ -11,6 +11,126 @@ This file is what *we* did and why, across sessions.
 
 ---
 
+## 2026-08-26 - MVP data-pipeline/storage architecture: ship "latest only"
+
+**Did:** Brainstormed the data-pipeline hosting/storage architecture (spec
+section 15 item 8), triggered by realizing spec section 5.3 ("historical
+AS-OF map date") is a required MVP feature, not just the section 7.1 point
+chart - and that it implies a forever-growing daily raster archive back to
+20 January 2025 (spec section 4.1), not just "today's snow state." Compared
+two shapes: (A) daily GitHub Actions job renders one static "latest
+conditions" tile set and republishes it through the existing Netlify deploy,
+with arbitrary historical map dates deferred; (B) the same daily job instead
+appends one compact per-day raster to object storage, plus a small always-on
+or scale-to-zero Python/rasterio service that runs the frozen section 9.2
+AS-OF selection on demand for any requested date/tile, cached aggressively
+since a historical (date, tile) result never changes once computed.
+
+**Decided:**
+- Ship Option A for the MVP. It reuses 100% of the pipeline code already
+  built (`asof.py`, `mosaic.py`, `tiles.py`) with zero throwaway work, adds
+  no new infrastructure or cost beyond the existing free GitHub Actions +
+  Netlify setup, and matches the project's running preference for the
+  smallest thing that closes the loop over building ahead of validated need.
+- Defer arbitrary historical AS-OF **map** browsing (spec section 5.3) out
+  of MVP scope. The OSM-object **historical chart** (spec section 7.1) is
+  unaffected and stays required - it's small time-series data, not raster
+  tiles, and was never the expensive part.
+- Set the concrete operating-cost target discussed while comparing options:
+  free where possible, up to EUR 20/month acceptable if it substantially
+  simplifies things. Recorded in spec section 12.
+- Revisit trigger for Option B: once real usage shows people actually want
+  to look at past dates on the map, not before. When revisited, the leading
+  candidate is Cloudflare R2 (its zero egress fees matter for unpredictable
+  tile-read traffic, unlike S3) plus a scale-to-zero container service
+  (Cloud Run or Fly.io) reusing `asof.py`'s backward-search logic directly.
+
+**Rejected:**
+- Building Option B now. The storage volume itself is cheap either way
+  (rough estimate: ~10-20 GB backfill since Jan 2025, growing ~5-10 GB/year,
+  a few dollars a month on any provider) - the real cost of Option B is
+  operational complexity (a live Python/GDAL rendering service, a cache
+  strategy, an object-storage bucket), not money. Not worth taking on before
+  the "crazy basic" app has validated anyone wants historical browsing.
+- Recomputing historical tiles live from Copernicus/CDSE on each user
+  request instead of maintaining any archive of our own. Rejected regardless
+  of which storage option we pick later: CDSE's per-run product limits (see
+  `docs/plan.md` Track B step 3) and unknown live-request latency/reliability
+  make it unfit for synchronous user-facing map requests.
+
+**Open / carried forward:** Full spec/plan updates for this decision (spec
+sections 5.3, 12, 13, 15; plan.md pipeline and stack bullets). When Option B
+is revisited, first define the exact MGRS tile set covering the Alps +
+Italian Apennines footprint (needed for both the one-time backfill and the
+ongoing daily job either way).
+
+---
+
+## 2026-08-26 - Real pipeline: browser-ready XYZ tile renderer
+
+**Did:** Added `pipeline/tiles.py`, which colorizes a merged AS-OF composite
+per the frozen visual encoding in spec sections 5.2 and 5.4 (snow-cover ramp,
+freshness-attenuated alpha, fixed violet cloud, transparent water/stale/
+no-data) and slices the result into standard `{z}/{x}/{y}.png` Web Mercator
+tiles, skipping fully-transparent ones. Added eight focused tests, bringing
+the pipeline suite to 25 tests. Ran it end to end on a real `32TPS` (Ortles-
+Cevedale) 11 Feb 2026 composite reprojected through `mosaic.py`'s target-grid
+path: 329 tiles written across z8/10/12, and a z8 tile visually inspected
+against a dark background matches the tile footprint and snow ramp already
+verified by `recon/make_overlay.py`.
+
+**Decided:**
+- One module, `render_rgba` (pure colorization) plus tile-warp/write
+  functions, not a bigger renderer package - this is the entire remaining gap
+  between `mosaic.py`'s composite and "browser-ready tiles" per `docs/plan.md`.
+- `render_rgba` needs no per-pixel state branching beyond a cloud override:
+  building a 256-entry LUT where indices 101-255 (all non-percentage GF/state
+  codes) default to transparent black means water/stale/no-data fall out for
+  free, since their `fsc` is already `NO_VALUE` and their `freshness` is
+  already zero in `AsOfComposite`. Only cloud needs an explicit override,
+  because spec 5.4 gives it a fixed alpha independent of freshness.
+- Standard XYZ addressing (`{z}/{x}/{y}.png`, 256px tiles, the OSM slippy-map
+  convention) via `rasterio.warp.reproject` per tile, not a single big
+  pre-warped raster sliced in Python - reuses the same nearest-neighbour
+  warping already validated in `mosaic.py`, and keeps memory bounded per tile
+  regardless of composite extent.
+- Skip fully-transparent tiles rather than writing them - a mosaic's footprint
+  is a rotated MGRS-tile rectangle or a small overlap region, never the whole
+  world, so most of any bounding box's tile range would otherwise be empty
+  files.
+- 0 as a shared nodata sentinel across all four RGBA bands in the tile warp:
+  no legitimate encoded pixel is ever all-zero (colors start at 130/160/190,
+  alpha at 26), so treating exact zero as "no data" on both source and
+  destination is unambiguous and lets one sentinel cover every band.
+
+**Rejected:**
+- Reusing `recon/make_overlay.py`'s LUT by import - that module is scaffolding
+  with a "GF-only, no freshness multiplier" placeholder ramp explicitly marked
+  not authoritative; `tiles.py` rebuilds the same stops directly from the now-
+  frozen spec 5.2 hex/alpha values as the source of truth instead.
+- `dst_nodata=0` without also setting `src_nodata=0` on the `reproject` calls:
+  the first version passed this test suite's synthetic-grid check but silently
+  turned every transparent `(0,0,0,0)` pixel into `(1,1,1,1)` on a real GDAL
+  warp. This is a known GDAL behaviour - a resampled value that happens to
+  equal `dst_nodata` gets bumped by 1 so it isn't mistaken for the nodata flag
+  - and it only shows up once source and destination grids actually go through
+  GDAL's warp machinery, not in pure-Python arithmetic. Caught by an end-to-end
+  run against real data, not by the unit tests alone; worth remembering that
+  gap next time a rasterio warp path only gets synthetic-array coverage.
+- A paletted PNG per tile (as `make_overlay.py` uses for its one image): the
+  freshness multiplier means a single tile can already contain up to ~305
+  distinct (color, alpha) pairs (101 percentages x up to 3 freshness bands,
+  plus cloud and transparent), over a 256-color palette's capacity without
+  quantization. Plain RGBA per tile avoids that complexity; tile files stay
+  small regardless.
+
+**Open / carried forward:** Wire up the daily fetch/schedule/publish job that
+chains `raster_io.py` -> `asof.py` -> `mosaic.py` -> `tiles.py` end to end and
+uploads the result, once the storage/hosting choice (spec section 15 item 8)
+is made.
+
+---
+
 ## 2026-08-25 - Real pipeline: MGRS overlap and UTM-seam mosaic
 
 **Did:** Added `pipeline/mosaic.py`, which composes each MGRS tile on its native

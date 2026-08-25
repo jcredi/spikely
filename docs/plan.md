@@ -1,7 +1,7 @@
 # Current plan
 
 **Status:** Real GFSC pipeline in progress - AS-OF core, raster adapter, and seam policy implemented.
-**Date:** 2026-08-25
+**Date:** 2026-08-26
 
 ## Why this replaces the original reconnaissance plan
 
@@ -41,9 +41,10 @@ Take one real downloaded GFSC raster from Track B, reproject/tile it, and render
 ## After convergence
 
 - **DONE - Freeze snow-data semantics from reconnaissance.** Sections 5.2-5.4, 7.1, and 9.2 of `docs/spec.md` now fix the visual encoding, quality/category handling, AS-OF selection, 14-day staleness ceiling, prolonged-gap behavior, and no-interpolation historical-chart rule. The former section 15 items 1-5 have been removed from the open list.
-- **IN PROGRESS - Build the real GFSC data pipeline.** `pipeline/asof.py` applies the frozen per-pixel selection, category, quality, and staleness rules; `pipeline/raster_io.py` discovers complete GF/GF-QA/AT triplets and validates their source grids; `pipeline/mosaic.py` now merges overlapping MGRS/UTM-zone composites on a common grid with a deterministic evidence-first rule. Next, render browser-ready XYZ tiles, then schedule/publish the daily job. Delete `recon/` when those duties are replaced (keeping `findings.md`); its one-image overlay remains scaffolding until then.
+- **IN PROGRESS - Build the real GFSC data pipeline.** `pipeline/asof.py` applies the frozen per-pixel selection, category, quality, and staleness rules; `pipeline/raster_io.py` discovers complete GF/GF-QA/AT triplets and validates their source grids; `pipeline/mosaic.py` merges overlapping MGRS/UTM-zone composites on a common grid with a deterministic evidence-first rule; `pipeline/tiles.py` colorizes a merged composite per the frozen spec 5.2/5.4 visual encoding and writes it as standard `{z}/{x}/{y}.png` Web Mercator tiles. Next: wire up the daily fetch/schedule/publish job - a GitHub Actions cron that discovers today's products, runs asof -> mosaic -> tiles end to end for the full Alps+Apennines AOI, and writes the result straight into `app/public/` for the existing Netlify deploy to serve (**decided 2026-08-26**, see `docs/spec.md` section 15 item 8 and `docs/worklog.md` - no object storage or on-demand tile server for MVP; that's deferred along with historical AS-OF map browsing, spec section 5.3). Delete `recon/` when those duties are replaced (keeping `findings.md`); its one-image overlay remains scaffolding until then.
 - **DONE - Frontend hosting.** `app/` deploys to Netlify (https://spikely.netlify.app), connected to this GitHub repo and auto-deploying on every push to `main`. See `docs/agent-guide.md` for build config.
-- Pick the rest of the stack: hosted routing API (for the A-to-B planner), geocoder, data-pipeline hosting (a good default: GitHub Actions for the daily GFSC fetch/tile job, object storage for tiles, Netlify light serverless functions for routing-API calls and point/history queries - Netlify's own scheduled functions are too short-lived, ~10-30s, for the daily data job itself).
+- **DONE - Data-pipeline hosting/storage architecture for MVP (2026-08-26).** Daily GitHub Actions job -> static tiles in `app/public/` -> served by the existing Netlify deploy. No object storage or dynamic tile-rendering service for MVP; see `docs/worklog.md` for the full brainstorm and the revisit trigger for arbitrary historical map dates.
+- Pick the rest of the stack: hosted routing API (for the A-to-B planner), geocoder.
 - Build out the rest of `docs/spec.md` in vertical slices: search, OSM object panel + historical chart, A-to-B routing + snow/elevation profile.
 
 ## Explicitly not doing yet
