@@ -27,3 +27,9 @@ accumulate under [Unreleased] until the first deploy, which becomes `0.1.0`.
 ### Changed
 - Hillshade layer moved above the snow overlay so shaded relief remains
   visible under snow at full opacity, instead of lowering snow opacity.
+
+### Changed (recordkeeping)
+- Agent instructions split out of `.claude/CLAUDE.md` into a shared
+  `docs/agent-guide.md`. `.claude/CLAUDE.md` and the new root `AGENTS.md`
+  (OpenAI Codex's entry point) are now one-line adapters pointing to it, so
+  Claude Code and Codex read the same guidance.

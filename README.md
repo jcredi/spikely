@@ -8,4 +8,5 @@ A free, mobile-friendly web app showing quasi-real-time Copernicus snow-cover da
 - Current plan: [`docs/plan.md`](docs/plan.md)
 - Working session log (what was done/decided/rejected, and when): [`docs/worklog.md`](docs/worklog.md)
 - Code changelog: [`CHANGELOG.md`](CHANGELOG.md)
+- Coding agent instructions (Claude Code, OpenAI Codex): [`docs/agent-guide.md`](docs/agent-guide.md)
 

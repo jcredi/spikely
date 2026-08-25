@@ -11,6 +11,30 @@ This file is what *we* did and why, across sessions.
 
 ---
 
+## 2026-08-25 - Multi-tool agent instructions (Claude Code + OpenAI Codex)
+
+**Did:** Split `.claude/CLAUDE.md`'s content into a shared `docs/agent-guide.md`.
+Added a root `AGENTS.md` and rewrote `.claude/CLAUDE.md` as one-line adapters
+that both point to it, so Claude Code and OpenAI Codex work from identical
+instructions instead of two copies that could drift.
+
+**Decided:**
+- Third neutral file (`docs/agent-guide.md`) rather than making either tool's
+  file the canonical source - keeps the two adapters symmetric, so adding a
+  third tool later is another one-line adapter, not a decision about which
+  existing file to subordinate.
+- `docs/agent-guide.md`, not repo root, for the shared file: it sits alongside
+  `spec.md`/`plan.md`/`worklog.md`, the other files it already tells agents
+  to read.
+
+**Rejected:**
+- `.codex/AGENTS.md`, as originally proposed - Codex (and the open agents.md
+  spec more broadly: Cursor, Jules, etc.) looks for `AGENTS.md` at the repo
+  root, not inside a `.codex/` folder. Placed at root instead; a file Codex
+  never reads would have made this exercise pointless.
+
+---
+
 ## 2026-08-25 - Converge: first real snow tile (Track A + B)
 
 **Did:** Scanned all 580 downloaded GFSC products to pick the best sample date.
