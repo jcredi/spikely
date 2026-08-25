@@ -8,6 +8,7 @@ from .raster_io import (
     discover_product_triplets,
     load_tile_products,
 )
+from .mosaic import Mosaic, TileComposite, mosaic_to_grid
 
 __all__ = [
     "AsOfComposite",
@@ -20,4 +21,7 @@ __all__ = [
     "RasterGrid",
     "discover_product_triplets",
     "load_tile_products",
+    "Mosaic",
+    "TileComposite",
+    "mosaic_to_grid",
 ]

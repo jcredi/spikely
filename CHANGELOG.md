@@ -14,6 +14,8 @@ accumulate under [Unreleased] until the first deploy, which becomes `0.1.0`.
   focused unit tests.
 - GFSC GeoTIFF adapter (`pipeline/raster_io.py`) that discovers complete daily
   GF/GF-QA/AT triplets and rejects inconsistent source grids or metadata.
+- GFSC overlap/UTM-seam mosaic (`pipeline/mosaic.py`) that applies the frozen
+  water/freshness/quality fallback rule on a common output grid.
 - MapLibre GL JS map shell (`app/`): MapTiler Outdoor basemap, pan/zoom,
   mobile-safe-area layout.
 - GFSC snow-cover overlay: one reprojected Copernicus product (Ortles-Cevedale,

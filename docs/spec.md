@@ -323,6 +323,18 @@ For each pixel:
 
 The backward search is required because median same-day valid coverage was only 25-63% across the reconnaissance samples and one tile changed from 97% valid to 90% no-data in five days. The 14-day ceiling keeps the complete observed 14-day forest gap usable, but makes anything older genuinely unavailable instead of presenting an indefinite carry-forward as current evidence.
 
+### 9.3 MGRS tile overlaps and UTM-zone seams
+
+GFSC MGRS tiles overlap by design, including across the UTM zone 32/33 seam in the Dolomites. Each tile must first be composed independently on its native grid using section 9.2. When native composites are reprojected onto a common output grid, every field must use nearest-neighbour resampling; averaging is forbidden because it would blend categorical states or invent snow percentages.
+
+For each output pixel covered by more than one tile, choose exactly one result in this order:
+
+1. **Water** wins, because it is a terminal static mask.
+2. Otherwise, choose a **valid** observation with the newest `AT`; break a tie with the lower numeric quality tier, then the lexicographically earlier MGRS tile ID.
+3. If no valid observation exists, choose **Cloud**, then **Stale**, then **No data**.
+
+This rule is applied per output pixel, never by arbitrary file order or map viewport. It yields one continuous result through an overlap while preserving the evidence/freshness semantics elsewhere in this section.
+
 ## 10. Responsive/mobile web behavior
 
 The first product is an open web application but must be designed mobile-first enough to work comfortably on a phone browser.

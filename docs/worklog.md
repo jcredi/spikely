@@ -11,6 +11,41 @@ This file is what *we* did and why, across sessions.
 
 ---
 
+## 2026-08-25 - Real pipeline: MGRS overlap and UTM-seam mosaic
+
+**Did:** Added `pipeline/mosaic.py`, which composes each MGRS tile on its native
+grid, reprojects semantic fields to a common target grid with nearest-neighbour
+resampling, and selects one source for every overlap pixel. Added three focused
+tests, bringing the pipeline suite to 17 tests. Tested the real 32TQS/33TUM
+Dolomites overlap across the UTM zone 32/33 seam using 6 and 11 February 2026
+products: the 90 m Web Mercator overlap grid was 98.80% valid, 0.54% cloud,
+0.23% water, and 0.42% no-data. The remaining no-data is source data, not a
+seam-generated gap.
+
+**Decided:**
+- Compose each tile before reprojecting it. This retains native 60 m evidence
+  and lets the frozen AS-OF rule operate where the data is actually aligned.
+- In an overlap, water is terminal; otherwise choose the newest valid `AT`,
+  then better quality, then lexicographically earlier MGRS tile ID. With no
+  valid value, precedence is cloud, stale, then no-data. This rule is now
+  frozen in spec section 9.3.
+- Reproject every semantic field with nearest-neighbour only. This preserves
+  distinct cloud/water/no-data categories and does not manufacture fractional
+  snow values across a seam.
+
+**Rejected:**
+- Assigning every overlap to a fixed tile: simple, but can discard a newer,
+  better-quality observation already available in the neighbouring tile.
+- Averaging/blending overlapping values: it would hide disagreement and invent
+  percentage values at both snow and categorical boundaries.
+- Letting source-file traversal order choose an exact tie: outcomes must remain
+  stable across machines and pipeline runs.
+
+**Open / carried forward:** Render the merged semantic result into browser-ready
+Web Mercator XYZ tiles, then add daily fetch, object storage, and publication.
+
+---
+
 ## 2026-08-25 - Real pipeline: validated GFSC raster-I/O adapter
 
 **Did:** Added `pipeline/raster_io.py`, which discovers the three required
