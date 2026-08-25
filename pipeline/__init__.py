@@ -9,6 +9,7 @@ from .raster_io import (
     load_tile_products,
 )
 from .mosaic import Mosaic, TileComposite, mosaic_to_grid
+from .tiles import render_rgba, write_xyz_tiles
 
 __all__ = [
     "AsOfComposite",
@@ -24,4 +25,6 @@ __all__ = [
     "Mosaic",
     "TileComposite",
     "mosaic_to_grid",
+    "render_rgba",
+    "write_xyz_tiles",
 ]
