@@ -1,4 +1,4 @@
-import type { IControl, Map } from "maplibre-gl";
+import type { IControl } from "maplibre-gl";
 import type { SnowOverlay } from "../map/snowOverlay";
 
 function formatProductDate(iso: string): string {
@@ -13,19 +13,13 @@ function formatProductDate(iso: string): string {
       });
 }
 
-/**
- * Snow layer on/off, plus what you're looking at and a way to get to it.
- *
- * The "Zoom to data" button exists because we currently ship exactly one
- * sample GFSC tile while the map opens on the whole Alps - it goes away once
- * there's real coverage.
- */
+/** Snow layer on/off, plus the product currently being shown. */
 export class SnowControl implements IControl {
   private container!: HTMLElement;
 
   constructor(private readonly overlay: SnowOverlay) {}
 
-  onAdd(map: Map): HTMLElement {
+  onAdd(): HTMLElement {
     const { meta } = this.overlay;
 
     this.container = document.createElement("div");
@@ -51,15 +45,7 @@ export class SnowControl implements IControl {
     // see docs/spec.md section 7.
     metaLine.title = meta.product;
 
-    const zoom = document.createElement("button");
-    zoom.type = "button";
-    zoom.className = "snow-ctrl__zoom";
-    zoom.textContent = "Zoom to data";
-    zoom.addEventListener("click", () => {
-      map.fitBounds(this.overlay.bounds, { padding: 24 });
-    });
-
-    this.container.append(toggle, metaLine, zoom);
+    this.container.append(toggle, metaLine);
     return this.container;
   }
 

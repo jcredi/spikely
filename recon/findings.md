@@ -77,12 +77,12 @@ Real per-day extraction at one pixel, full window - see this as the first concre
   This one point is forested, and QAFLAGS bit1 (TCD>90%) plus the PUM's own text ("spatial
   gap filling is mainly applicable... in non-forested, non-urban... areas") suggests this
   isn't a fluke - forested terrain may systematically cap out at "minimal" quality. This
-  matters a lot for spec section 15 item 2 (quality-tier treatment): a policy of "only show
+  matters a lot for former spec section 15 item 2 (quality-tier treatment): a policy of "only show
   high/medium quality" would blank out forested regions entirely, not just degrade them.
 - **NODATA gaps up to 14 consecutive days** (2026-02-08 to 2026-02-21) at this single pixel -
   longer than the PUM's stated 7-day max compositing window and its "5 days under good
   conditions" claim. This is a real, observed instance of the "prolonged cloud gap" spec
-  section 15 item 4 explicitly flags as an open decision - worth widening the historical-chart
+  former section 15 item 4 explicitly flagged as an open decision - worth widening the historical-chart
   interpolation/carry-forward discussion around this kind of multi-week gap, not just 2-3 day
   gaps.
   - CLOUD (`205`, distinct from NODATA/`255`) also appeared in its own multi-day blocks
@@ -95,7 +95,7 @@ Real per-day extraction at one pixel, full window - see this as the first concre
 ### Open follow-ups
 
 - Haven't yet checked the glacier (Ortles) or Apennine (Gran Sasso) time series the same way -
-  worth doing before finalizing the AS-OF/quality rules in spec section 15.
+  worth doing before finalizing the then-open AS-OF/quality rules in spec section 15.
 - Haven't yet rendered/reprojected anything for the map (that's the "first real snow tile"
   convergence milestone in `docs/plan.md`, not part of this reconnaissance pass).
 
@@ -169,10 +169,10 @@ bounds plus the forward Web Mercator formula (what the browser effectively does)
 2. **Does 60 m look reasonable?** At z8-11, yes - clearly good enough to read where snow
    is on a massif. At z13+ the 60 m pixels are plainly blocky against 100 m contour
    detail. Usable for "is this face snow-covered", too coarse to resolve an individual
-   couloir or a narrow ridge - which is the concrete case spec section 15 item 15 (optional
+   couloir or a narrow ridge - which is the concrete case spec section 15 item 10 (optional
    20 m FSCOG/FSCTOC layer) was reserved for.
 
-### New questions this raises for spec section 15
+### New questions this raised for the formerly open spec section 15 items
 
 - **Snow at high opacity erased the hillshade - fixed by layer order, not by opacity.**
   First attempt put snow above landcover *and* hillshade, below contours/roads/trails/
@@ -194,7 +194,7 @@ bounds plus the forward Web Mercator formula (what the browser effectively does)
 
   Generalisable point: the "snow hides the terrain" problem is a layer-order problem, and
   spending opacity on it is the expensive fix. Max alpha stays a free parameter in the LUT
-  for section 15 item 1, but it no longer has to carry this.
+  for former section 15 item 1, but it no longer has to carry this.
 - **`nearest` vs `linear` resampling is an honesty question, not a taste one.** `linear`
   looks considerably better - smooth, less blocky - but it invents sub-60 m detail the
   data doesn't have and smooths across categorical cloud boundaries. Kept `nearest`.

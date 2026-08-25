@@ -13,7 +13,7 @@ accumulate under [Unreleased] until the first deploy, which becomes `0.1.0`.
   mobile-safe-area layout.
 - GFSC snow-cover overlay: one reprojected Copernicus product (Ortles-Cevedale,
   6 Feb 2026) rendered as a MapLibre `image` source (`app/src/map/snowOverlay.ts`).
-- Snow layer on/off toggle and "Zoom to data" control (`app/src/ui/snowControl.ts`).
+- Snow layer on/off toggle (`app/src/ui/snowControl.ts`).
 - Copernicus attribution alongside the MapTiler/OSM credit.
 - `recon/make_overlay.py` - reprojects a GFSC `GF.tif` to EPSG:3857, writes a
   paletted PNG + JSON sidecar, self-verifies georeferencing against the source
@@ -27,6 +27,14 @@ accumulate under [Unreleased] until the first deploy, which becomes `0.1.0`.
 ### Changed
 - Hillshade layer moved above the snow overlay so shaded relief remains
   visible under snow at full opacity, instead of lowering snow opacity.
+- Frozen the GFSC MVP semantics from reconnaissance: exact coverage/freshness
+  rendering, all-tier quality handling, categorical cloud/water/no-data states,
+  a 14-day AS-OF staleness ceiling, and no historical-chart interpolation or
+  carry-forward.
+- Updated the reconnaissance overlay's cloud color from rock-like grey to the
+  frozen violet category and regenerated its sample artifact.
+- Removed the convergence-only "Zoom to data" button now that its throwaway
+  purpose is complete.
 
 ### Changed (recordkeeping)
 - Agent instructions split out of `.claude/CLAUDE.md` into a shared

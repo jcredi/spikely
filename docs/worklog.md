@@ -11,6 +11,83 @@ This file is what *we* did and why, across sessions.
 
 ---
 
+## 2026-08-25 - Removed the convergence-only zoom control
+
+**Did:** Removed the throwaway **Zoom to data** button from the snow control,
+including its click handler and now-dead CSS. The control now contains only the
+snow visibility toggle and current sample-product metadata. The screenshot
+harness still drives the map directly and needs no change.
+
+**Decided:** Do not replace it with another recenter/fit-bounds action. The
+button existed only to reach one reconnaissance tile from the Alps-wide initial
+view; carrying that scaffold into the real-coverage UI would preserve the wrong
+interaction model.
+
+**Rejected:** Keeping the button until the pipeline lands - it has completed its
+milestone purpose, and leaving known throwaway UI in place makes it easier to
+mistake for a product requirement later.
+
+**Open / carried forward:** Build the real GFSC pipeline; no pipeline work was
+started in this cleanup.
+
+---
+
+## 2026-08-25 - Snow-data semantics frozen after convergence
+
+**Did:** Closed the five snow-data decisions that reconnaissance had deliberately
+left open. Updated `docs/spec.md` sections 4.1, 5.2-5.4, 7.1, and 9.2 with
+reproducible rules, removed those items from section 15's open list, and marked
+the post-convergence semantics step done in `docs/plan.md`. Aligned the GF-only
+reconnaissance LUT with the frozen base ramp and violet cloud color, regenerated
+its one sample overlay, and reran its georeferencing check; did not start the
+real pipeline.
+
+**Decided:**
+- Preserve the proven steel-blue-to-white coverage ramp: sRGB `#82A0BE` at 0%,
+  `#C8DEF0` at 50%, and `#FFFFFF` at 100%, with base alpha 26/150/224 out of
+  255. Freshness multiplies that alpha by 1.00 at age 0-3 days, 0.75 at 4-7,
+  0.45 at 8-14, and 0 from day 15. Nearest-neighbour resampling and hillshade
+  above snow are part of the rule, not renderer preferences.
+- Treat `AT` acquisition time as freshness and GF-QA as a separate confidence
+  signal. All tiers 0-3 remain valid and equally eligible; quality is preserved
+  and reported but never used to hide or fade a percentage. Otherwise the real
+  Paneveggio forest point, tier 3 on every valid day, would be unusable.
+- Keep cloud (`205`), water (`210`), and no-data (`255`) semantically distinct.
+  Cloud falls back to violet rather than rock-like grey when no recent value is
+  available; water is a terminal transparent mask; no-data is transparent and
+  never treated as 0% snow.
+- For AS-OF date `D`, choose the valid candidate with the newest `AT`; ties use
+  better quality then newer product date. Search backward only while source age
+  is at most 14 days. This handles the observed 14-day gap and poor same-day
+  coverage, while the 8-14-day alpha makes the age visible and day 15 prevents
+  an old value from becoming an indefinite claim about current snow.
+- Historical charts show explicit valid product-day values only. They neither
+  interpolate nor carry values into cloud/no-data/missing days, including via
+  the map's AS-OF fallback; gaps stay visible and labelled.
+
+**Rejected:**
+- Filtering out low/minimal GF-QA or attenuating it as though it meant age -
+  this would erase forested terrain and conflates confidence with the measured
+  `AT` freshness signal.
+- Same-day-only or 5-7-day fallback - median valid coverage was only 25-63%, a
+  tile became 90% no-data within five days, and a real gap lasted 14 days.
+- Carry-forward beyond 14 days or chart interpolation - both create plausible
+  snow values with no explicit supporting observation.
+- Neutral grey for cloud - it was visually confusable with rock/scree on the
+  MapTiler Outdoor basemap. Also retained the earlier rejection of linear
+  resampling and of reducing snow opacity to recover relief.
+- Extending the GF-only reconnaissance overlay to fake freshness or quality:
+  it has neither `AT` nor GF-QA. It was regenerated only to sanity-check the
+  frozen base ramp and categorical cloud color; the real pipeline is the right
+  place to render their combined semantics. Its numerical/alignment check
+  passed; an optional browser re-check could not run because no browser surface
+  was available in this session, which does not block the semantic decision.
+
+**Open / carried forward:** Build the real multi-tile GFSC pipeline from these
+frozen rules; this session intentionally stopped at the semantic gate.
+
+---
+
 ## 2026-08-25 - Multi-tool agent instructions (Claude Code + OpenAI Codex)
 
 **Did:** Split `.claude/CLAUDE.md`'s content into a shared `docs/agent-guide.md`.
@@ -117,9 +194,9 @@ in `recon/findings.md`; this entry is the narrative summary.
 **Findings that shaped later decisions:**
 - Quality tier was minimal (tier 3) on every single day at one forested test
   point - not a fluke; the PUM explains gap-filling is mainly for non-forested
-  terrain. Directly informs spec.md section 15 item 2.
+  terrain. Directly informed former spec.md section 15 item 2.
 - NODATA gaps up to 14 consecutive days at one pixel, longer than the PUM's
-  stated 5-7 day compositing window. Directly informs section 15 item 4.
+  stated 5-7 day compositing window. Directly informed former section 15 item 4.
 - Confirmed `QAFLAGS` bit7 (radar/SWS source) lines up exactly with wet-snow
   pixels forced to 100% FSC - documented PUM behaviour, not a bug.
 

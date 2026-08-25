@@ -38,8 +38,7 @@ body {
   right: env(safe-area-inset-right);
 }
 
-/* Snow layer control: on/off, which product, and a way to reach it while the
-   map still opens on the whole Alps but we only ship one sample tile. */
+/* Snow layer control: on/off plus the product currently being shown. */
 .snow-ctrl {
   padding: 0.5rem 0.625rem 0.625rem;
   font:
@@ -67,32 +66,11 @@ body {
 }
 
 .snow-ctrl__meta {
-  margin: 0.125rem 0 0.5rem 1.625rem;
+  margin: 0.125rem 0 0 1.625rem;
   font-size: 0.6875rem;
   font-weight: 400;
   color: #667380;
   white-space: nowrap;
-}
-
-/* Outspecify MapLibre's own `.maplibregl-ctrl-group button { width: 29px }`,
-   which is meant for its square icon buttons. */
-.snow-ctrl button.snow-ctrl__zoom {
-  display: block;
-  width: 100%;
-  height: auto;
-  min-height: 2.25rem;
-  padding: 0 0.75rem;
-  border: 1px solid #d3dae0;
-  border-radius: 4px;
-  background: #f6f8fa;
-  font: inherit;
-  color: inherit;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.snow-ctrl button.snow-ctrl__zoom:hover {
-  background: #e9eef2;
 }
 
 .maplibregl-ctrl-top-left {

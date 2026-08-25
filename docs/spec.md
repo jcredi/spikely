@@ -1,8 +1,10 @@
 # Spikely MVP Product Specification
 
-**Status:** Draft v1.1 - product scope frozen for data reconnaissance  
+**Status:** Draft v1.2 - snow-data semantics frozen after reconnaissance
 **Date:** 2026-08-25  
 **Product stage:** Planning only
+
+**Amendment (v1.2):** Froze the MVP snow-data semantics after empirical GFSC reconnaissance: `AT`-based freshness, all-tier quality handling, exact visual/category encoding, a 14-day AS-OF ceiling, and no app-created chart interpolation or carry-forward. See sections 5.2-5.4, 7.1, and 9.2.
 
 **Amendment (v1.1):** Switched primary snow data source from raw FSCOG/FSCTOC (20 m) to GFSC, the Copernicus gap-filled composite (60 m). Rationale: GFSC trades spatial resolution and some observation-level precision for near-complete daily spatial/temporal coverage, which meaningfully simplifies the data pipeline and AS-OF logic for the MVP. This is a deliberate, reversible choice - raw FSCOG/FSCTOC remain available as a future upgrade path if 60 m proves too coarse for specific terrain (narrow ridges, passes) or the GFSC quality tier proves too coarse a freshness signal. See section 4.1, section 7.2, and section 15.
 
@@ -47,9 +49,9 @@ Primary snow product:
 
 **Copernicus Land Monitoring Service - Gap-filled Fractional Snow Cover (GFSC), 60 m**
 
-GFSC is a daily, spatially- and temporally-complete composite built by Copernicus from FSC (Sentinel-2 optical), WDS/SWS (Sentinel-1 radar), and DEM inputs. It reports a single fractional snow-cover percentage per pixel (0-100%), already on-ground-corrected - there is no separate top-of-canopy variant to toggle. Compared to raw FSC, GFSC trades spatial resolution (60 m vs. 20 m native) and some per-observation precision for near-complete daily coverage, which removes most of the cloud/revisit gap-handling complexity from the MVP.
+GFSC is a daily gap-filled composite built by Copernicus from FSC (Sentinel-2 optical), WDS/SWS (Sentinel-1 radar), and DEM inputs. It reports a single fractional snow-cover percentage per pixel (0-100%), already on-ground-corrected - there is no separate top-of-canopy variant to toggle. Compared to raw FSC, GFSC trades spatial resolution (60 m vs. 20 m native) and some per-observation precision for broader daily coverage. Real samples still contained large residual gaps, so GFSC simplifies but does not remove cloud/revisit gap handling from the MVP.
 
-Each pixel carries a quality tier (0 = high, 1 = medium, 2 = low, 3 = minimal) plus explicit codes for cloud/cloud-shadow and no-data. This quality tier is the primary freshness/confidence signal for GFSC - it is a coarser signal than an explicit "observation age in days," since GFSC's own gap-filling can draw on source data up to about a week old. The interface should treat the quality tier as the user-facing freshness indicator (see section 5.2, section 9.2).
+Each pixel carries a quality tier (0 = high, 1 = medium, 2 = low, 3 = minimal), an `AT` timestamp for the source acquisition actually used, plus explicit codes for cloud/cloud-shadow, inland water, and no-data. `AT`, measured relative to the selected AS-OF date, is the freshness signal. Quality is a separate confidence/gap-filling signal and must not be used as a proxy for age (see sections 5.2, 5.4, and 9.2).
 
 For MVP purposes, historical support only needs to cover data from **20 January 2025 onward**.
 
@@ -105,12 +107,15 @@ The map must visually communicate at least two quantities:
 1. fractional snow cover percentage;
 2. freshness/age of the observation used for that pixel.
 
-The current leading visual model is:
+For a valid GFSC percentage `s` from 0 through 100, the MVP rendering is fixed as follows:
 
-- **color = snow-cover percentage**;
-- **opacity = observation freshness**.
+- **color = snow-cover percentage:** piecewise-linear interpolation in sRGB from `#82A0BE` at 0%, through `#C8DEF0` at 50%, to `#FFFFFF` at 100%, rounding each channel to the nearest 8-bit integer;
+- **base alpha = snow-cover legibility:** the same interpolation over alpha values `26`, `150`, and `224` out of 255 at 0%, 50%, and 100%; this preserves a subtle tint for measured 0% snow while letting larger snow fractions read strongly;
+- **freshness = an alpha multiplier:** `1.00` for an observation age of 0-3 calendar days, `0.75` for 4-7 days, `0.45` for 8-14 days, and `0` from day 15 onward. Final alpha is the rounded product of base alpha and this multiplier.
 
-This is provisional. During design/data reconnaissance, alternatives should be compared, including reversing or otherwise separating these visual channels.
+Age is defined in section 9.2. Quality tier does not change color or opacity; its separate treatment is in section 5.4. Cloud, water, and no-data use categorical handling rather than this ramp.
+
+Raster reprojection and map rendering must use nearest-neighbour resampling. GFSC mixes percentage values with categorical codes, so linear resampling would invent sub-60 m detail and plausible-looking percentages at category boundaries. The basemap's existing hillshade must remain above the snow layer; terrain relief must not be recovered by weakening the snow encoding.
 
 The user must be able to toggle the snow overlay on/off.
 
@@ -125,7 +130,7 @@ The user must be able to view:
 
 A selected date is an **AS-OF date**, not a requirement that every pixel have an observation acquired exactly on that date.
 
-For a selected AS-OF date `D`, each pixel should use the latest valid observation available on or before `D`, subject to quality and staleness rules that will be defined after data reconnaissance.
+For a selected AS-OF date `D`, each pixel uses the latest valid observation available on or before `D` under the deterministic selection and staleness rule in section 9.2.
 
 Example:
 
@@ -139,16 +144,16 @@ The application must not confuse unavailable observations with 0% snow.
 
 GFSC distinguishes ordinary 0-100% values from an explicit cloud/cloud-shadow code and no-data, and carries a four-level quality tier (high/medium/low/minimal) reflecting how much spatial/temporal gap-filling went into a given pixel. Even a gap-filled, spatially-complete product can still have genuine no-data (e.g. persistent cloud with no usable source data at all).
 
-The exact visual and analytical treatment of these states will be defined after empirical inspection of real GFSC products.
+The MVP treatment is:
 
-At minimum, the final behavior must distinguish:
+- GF values 0-100 with a quality tier 0-3 and usable `AT` are valid. High, medium, low, and minimal tiers are all retained for map rendering and analysis; tier alone never hides or attenuates a value. The tier must be preserved and displayed by name in point/history details and included in route-quality summaries. This is necessary because a real forested sample was tier 3 on every valid day.
+- QA flags are retained as metadata but do not exclude a valid percentage in the MVP.
+- Cloud/cloud-shadow (`205`) is not a snow value. If AS-OF fallback finds no usable earlier value, render it as violet `#A855F7` at alpha `0.45` and label it **Cloud**. Neutral grey is forbidden because it was confusable with rock/scree on the selected basemap.
+- Inland water (`210`) is a terminal mask, not 0% snow: do not search earlier products for a snow value, render the snow layer transparent, and report **Water** in details and analysis.
+- No-data (`255`), a missing product, an unusable `AT`, or inconsistent GF/GF-QA category codes is unavailable, not 0% snow: render the snow layer transparent and report **No data**. A valid 0% pixel remains distinguishable by the ramp's blue tint.
+- A structurally valid percentage whose newest usable `AT` is more than 14 days old is hidden and reported as **Stale - last observation N days old**, not collapsed into cloud, no-data, or 0% snow.
 
-- valid snow-free pixels;
-- valid partially/fully snow-covered pixels;
-- unavailable or invalid observations;
-- cloud/cloud-shadow situations where no valid value is available;
-- water/no-data;
-- low/minimal-quality (heavily gap-filled) observations.
+Cloud and no-data remain separate states throughout storage, APIs, charts, and UI even though both can trigger AS-OF fallback. They were observed as distinct multi-day runs in real data and must not be collapsed into one generic missing code.
 
 ## 6. Place search and selectable OSM objects
 
@@ -206,7 +211,7 @@ Exact presets can be refined later.
 
 The chart must handle missing/cloudy observations honestly rather than silently converting them to snow-free conditions.
 
-The behavior of missing observations, interpolation, carry-forward values, and quality filtering will be defined after FSC reconnaissance.
+Historical charts plot one discrete mark for a product date only when that product's own pixel has GF 0-100, GF-QA 0-3, and a usable `AT` no more than 14 days before that product date. The mark uses that product's explicit GF value. Charts do not interpolate, smooth, or carry the last value into a cloud/no-data/missing date, and they do not populate chart gaps from the map's AS-OF fallback. A gap remains a gap and is labelled **Cloud**, **No data**, or **Stale** where applicable. Every mark's details expose product date, source `AT`, observation age, and quality tier. This rule does not undo gap-filling already performed inside an explicit GFSC product; it only forbids the app from inventing additional values.
 
 ### 7.2 FSCOG / FSCTOC toggle - removed for MVP
 
@@ -306,16 +311,17 @@ A value of 100% means that the pixel is assessed as completely snow-covered acco
 
 ### 9.2 Latest valid observation
 
-The precise definition of a "valid" observation is intentionally not frozen yet.
+All dates and acquisition timestamps are compared in UTC. For an AS-OF calendar date `D`, observation age is `D - UTC-date(AT)` in whole calendar days, with a minimum of zero.
 
-It will depend on empirical findings regarding:
+For each pixel:
 
-- GFSC quality tier (high/medium/low/minimal);
-- cloud/cloud-shadow and no-data codes;
-- age of the GFSC product date relative to the AS-OF date;
-- residual gaps even after gap-filling (e.g. persistent cloud with no usable source data).
+1. If the newest available product on or before `D` identifies the pixel as inland water (`210`), return **Water** immediately.
+2. Consider products with product date on or before `D`. A candidate is valid only when GF is 0-100, GF-QA is 0-3, `AT` is usable and no later than the end of `D`, and its observation age is at most 14 days. Quality tiers 0-3 are equally eligible.
+3. Select the candidate with the greatest `AT`. Break an `AT` tie by better quality tier (lower numeric GF-QA), then by the later product date. This makes the result independent of file or query ordering.
+4. Render the selected value with the age multiplier from section 5.2: normal at 0-3 days, aging at 4-7 days, and strongly de-emphasized/stale at 8-14 days.
+5. If no candidate exists, return no snow value. Preserve the newest product's reason as **Cloud** for `205` or **No data** for `255`; no product or malformed/inconsistent metadata is **No data**. If valid-form percentages exist but their usable acquisitions are all older than 14 days, return **Stale** with the most recent acquisition age. Do not search or carry forward beyond 14 days.
 
-The MVP specification requires an explicit, reproducible rule to be defined before implementation.
+The backward search is required because median same-day valid coverage was only 25-63% across the reconnaissance samples and one tile changed from 97% valid to 90% no-data in five days. The 14-day ceiling keeps the complete observed 14-day forest gap usable, but makes anything older genuinely unavailable instead of presenting an indefinite carry-forward as current evidence.
 
 ## 10. Responsive/mobile web behavior
 
@@ -400,23 +406,18 @@ These exclusions are important to keep the first release manageable.
 
 ## 15. Important open decisions
 
-The following are intentionally left open until data and technology reconnaissance is complete:
+Snow/freshness encoding, quality and categorical-code handling, staleness, prolonged gaps, and historical-chart carry-forward are now frozen in sections 5.2-5.4, 7.1, and 9.2. The remaining open decisions are:
 
-1. Exact snow/freshness visual encoding.
-2. Exact treatment of GFSC quality tiers (high/medium/low/minimal) and residual no-data/cloud codes.
-3. Staleness thresholds and when old data should be hidden or strongly de-emphasized.
-4. Treatment of prolonged cloud gaps.
-5. Whether any temporal interpolation/carry-forward should occur in historical charts beyond explicit AS-OF behavior.
-6. Exact route sampling method and sampling spacing.
-7. Exact definition of route "snow-covered percentage."
-8. Which OSM object classes are interactive by default at each zoom level.
-9. Basemap/vector/terrain provider.
-10. Geocoding/search provider.
-11. Hiking routing provider.
-12. Elevation/DEM source.
-13. Frontend, backend, storage, tiling, and deployment architecture.
-14. Operating-cost target after scale estimates.
-15. Whether raw FSCOG/FSCTOC (20 m) should be added later as an optional higher-resolution layer for terrain where 60 m GFSC proves too coarse.
+1. Exact route sampling method and sampling spacing.
+2. Exact definition of route "snow-covered percentage."
+3. Which OSM object classes are interactive by default at each zoom level.
+4. Basemap/vector/terrain provider.
+5. Geocoding/search provider.
+6. Hiking routing provider.
+7. Elevation/DEM source.
+8. Frontend, backend, storage, tiling, and deployment architecture.
+9. Operating-cost target after scale estimates.
+10. Whether raw FSCOG/FSCTOC (20 m) should be added later as an optional higher-resolution layer for terrain where 60 m GFSC proves too coarse.
 
 ## 16. MVP success criteria
 
