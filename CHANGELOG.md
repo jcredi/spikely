@@ -12,6 +12,8 @@ accumulate under [Unreleased] until the first deploy, which becomes `0.1.0`.
 - Production GFSC AS-OF semantic core (`pipeline/asof.py`) with deterministic
   AT/quality/product-date selection, categorical states, staleness output, and
   focused unit tests.
+- GFSC GeoTIFF adapter (`pipeline/raster_io.py`) that discovers complete daily
+  GF/GF-QA/AT triplets and rejects inconsistent source grids or metadata.
 - MapLibre GL JS map shell (`app/`): MapTiler Outdoor basemap, pan/zoom,
   mobile-safe-area layout.
 - GFSC snow-cover overlay: one reprojected Copernicus product (Ortles-Cevedale,

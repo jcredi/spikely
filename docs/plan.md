@@ -1,6 +1,6 @@
 # Current plan
 
-**Status:** Real GFSC pipeline in progress - AS-OF semantic core implemented.
+**Status:** Real GFSC pipeline in progress - AS-OF core and raster adapter implemented.
 **Date:** 2026-08-25
 
 ## Why this replaces the original reconnaissance plan
@@ -41,7 +41,7 @@ Take one real downloaded GFSC raster from Track B, reproject/tile it, and render
 ## After convergence
 
 - **DONE - Freeze snow-data semantics from reconnaissance.** Sections 5.2-5.4, 7.1, and 9.2 of `docs/spec.md` now fix the visual encoding, quality/category handling, AS-OF selection, 14-day staleness ceiling, prolonged-gap behavior, and no-interpolation historical-chart rule. The former section 15 items 1-5 have been removed from the open list.
-- **IN PROGRESS - Build the real GFSC data pipeline.** The first production slice, `pipeline/asof.py`, now applies the frozen per-pixel selection, category, quality, and staleness rules to aligned GF/GF-QA/AT arrays with focused tests. Next, add the raster-I/O adapter that discovers and validates real product triplets, then handle MGRS overlaps/UTM seams, render XYZ tiles, and schedule/publish the daily job. Delete `recon/` when those duties are replaced (keeping `findings.md`); its one-image overlay remains scaffolding until then.
+- **IN PROGRESS - Build the real GFSC data pipeline.** `pipeline/asof.py` applies the frozen per-pixel selection, category, quality, and staleness rules; `pipeline/raster_io.py` now discovers complete GF/GF-QA/AT triplets and validates their source grids before feeding that core. Next, define and implement the MGRS-overlap/UTM-seam policy, then render XYZ tiles and schedule/publish the daily job. Delete `recon/` when those duties are replaced (keeping `findings.md`); its one-image overlay remains scaffolding until then.
 - Pick the rest of the stack: hosted routing API (for the A-to-B planner), geocoder, hosting/data-pipeline shape (a good default: GitHub Actions for the daily GFSC fetch/tile job, object storage for tiles, Netlify for the static frontend + light serverless functions for routing-API calls and point/history queries - Netlify's own scheduled functions are too short-lived, ~10-30s, for the daily data job itself).
 - Build out the rest of `docs/spec.md` in vertical slices: search, OSM object panel + historical chart, A-to-B routing + snow/elevation profile.
 

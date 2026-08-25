@@ -37,7 +37,7 @@ A free, mobile-friendly web app showing quasi-real-time Copernicus snow-cover da
 ## `pipeline/` conventions
 - Python. Keep the semantic core independent of raster I/O, reprojection, storage, and scheduling; those are adapters around it.
 - AS-OF behavior must match `docs/spec.md` sections 5.2-5.4 and 9.2. Add focused tests for every semantic edge case rather than re-encoding rules in callers.
-- Current tests run with `recon/.venv/bin/python -m unittest pipeline.tests.test_asof` until the production pipeline gets its own environment.
+- Current tests run with `recon/.venv/bin/python -m unittest discover -s pipeline/tests` until the production pipeline gets its own environment.
 
 ## Workflow
 - Use plan mode (or the equivalent approval/preview step in whichever tool you are) for anything touching more than one file, or where the approach isn't obvious. Skip it for small, clearly-scoped fixes.

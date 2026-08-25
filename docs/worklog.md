@@ -11,6 +11,44 @@ This file is what *we* did and why, across sessions.
 
 ---
 
+## 2026-08-25 - Real pipeline: validated GFSC raster-I/O adapter
+
+**Did:** Added `pipeline/raster_io.py`, which discovers the three required
+rasters in every GFSC product, parses tile/date/version from the official name,
+and reads only one MGRS tile at a time into the AS-OF core. It rejects an
+incomplete triplet, duplicate tile/date versions, multi-band data, absent CRS,
+unexpected GF/GF-QA/AT dtypes or nodata sentinels, and any CRS/transform/shape
+mismatch. Added five temporary-GeoTIFF tests, bringing the pipeline suite to 14
+tests.
+
+Validated the adapter on the real 6 and 11 February 2026 `32TPS` products: it
+confirmed the shared EPSG:32632 1830×1830 grid, then fed the two daily arrays
+to the compositor and reproduced 97.22% valid AS-OF coverage for 11 February.
+It also discovered all 91 complete `32TPS` products in the full 15 January to
+15 April sample window without exceptions.
+
+**Decided:**
+- Treat a product triplet as an all-or-nothing input. A failed/incomplete
+download must stop the job instead of silently shrinking the AS-OF search set.
+- Refuse multiple versions for a tile/date until a separate explicit version
+selection policy exists. Choosing based on filesystem order would undermine the
+deterministic selection guarantee.
+- Validate daily grids before composition, including across product dates. The
+AS-OF core is only meaningful when a pixel means the same ground location in
+every source array.
+
+**Rejected:**
+- Glob only `*_GF.tif` and assume its sibling layers exist - this turns a
+partial product into a later, harder-to-diagnose semantic error.
+- Silently resample a mismatched daily source in the loader. Reprojection
+belongs to the later render stage, not before native-grid AS-OF selection.
+
+**Open / carried forward:** Define how overlapping MGRS tiles, particularly the
+zone 32/33 seam, contribute to one rendered view. Then add Web Mercator XYZ
+rendering and daily fetch/publish infrastructure.
+
+---
+
 ## 2026-08-25 - Real pipeline started: AS-OF semantic core
 
 **Did:** Committed and pushed the completed post-reconnaissance semantics/UI
