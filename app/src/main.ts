@@ -1,10 +1,35 @@
 import maplibregl from "maplibre-gl";
-import { initialView, styleUrl } from "./map/config";
+import { initialView, snowOverlayUrl, styleUrl } from "./map/config";
+import { addSnowOverlay } from "./map/snowOverlay";
+import { SnowControl } from "./ui/snowControl";
 import "./style.css";
 
-new maplibregl.Map({
+const map = new maplibregl.Map({
   container: "map",
   style: styleUrl,
   center: initialView.center,
   zoom: initialView.zoom,
-}).addControl(new maplibregl.NavigationControl(), "top-right");
+  attributionControl: {
+    // The MapTiler style supplies its own MapTiler/OSM credit; this adds the
+    // Copernicus one, now that we render Copernicus-derived data.
+    customAttribution:
+      '<a href="https://land.copernicus.eu/en/products/snow/high-resolution-gap-filled-fractional-snow-cover" target="_blank" rel="noopener">Snow: Copernicus HR-WSI GFSC</a> (© European Union, Copernicus Land Monitoring Service / EEA)',
+  },
+});
+
+map.addControl(new maplibregl.NavigationControl(), "top-right");
+
+map.on("load", async () => {
+  try {
+    const overlay = await addSnowOverlay(map, snowOverlayUrl);
+    map.addControl(new SnowControl(overlay), "top-left");
+  } catch (error) {
+    // A missing overlay shouldn't take the basemap down with it.
+    console.error("Snow overlay failed to load", error);
+  }
+});
+
+if (import.meta.env.DEV) {
+  // Used by scripts/screenshot.mjs to drive the camera.
+  (window as unknown as { map: maplibregl.Map }).map = map;
+}

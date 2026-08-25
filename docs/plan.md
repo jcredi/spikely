@@ -1,6 +1,6 @@
 # Current plan
 
-**Status:** Phase 0 - both tracks starting now.
+**Status:** Convergence milestone done - a real GFSC tile renders on the real map.
 **Date:** 2026-08-25
 
 ## Why this replaces the original reconnaissance plan
@@ -27,13 +27,21 @@ Goal: understand what the real GFSC data looks like over the Alps + Italian Apen
 4. Inspect what you actually got: resolution/projection, quality-tier (0-3) distribution, how often cloud/no-data shows up, what a real time series at one point looks like.
 5. Write findings to `recon/findings.md` as short running bullet notes - not a formal report.
 
-## Converge: first real snow tile
+## Converge: first real snow tile - DONE
 
 Take one real downloaded GFSC raster from Track B, reproject/tile it, and render it as an overlay on the Track A map. This is the first real milestone. It answers most of the remaining open questions from both tracks at once (does the projection actually line up, does the resolution look reasonable at the zoom levels people will actually use, etc).
+
+**Outcome.** `recon/make_overlay.py` reprojects one GFSC product (Ortles-Cevedale, 6 Feb 2026) from native UTM to EPSG:3857 and writes a paletted PNG plus a JSON sidecar into `app/public/snow/`; the app loads it as a MapLibre `image` source. Also added the spec section 5.2 snow on/off toggle and Copernicus attribution. Full notes in `recon/findings.md`.
+
+- **Projection lines up** - verified numerically (11 landmarks, 300 random points, 0 unexplained mismatches) as well as visually: snow-free pixels trace the Adige valley exactly.
+- **60 m is fine at z8-11, visibly blocky at z13+** - good enough for "is this face snow-covered", too coarse for an individual couloir. That's the concrete trigger for spec section 15 item 15.
+- **An EPSG:3857 `image` source needs no tiling pipeline** - worth keeping in mind for how much machinery the real pipeline actually requires.
+- Two new inputs to the section 15 visual-encoding decision came out of looking at it: `nearest` vs `linear` resampling is an honesty tradeoff, and grey cloud is confusable with rock on this basemap. A third - snow at full opacity hiding the shaded relief - turned out to be a layer-order problem and is already fixed (the basemap's hillshade is moved above the snow).
 
 ## After convergence
 
 - Freeze the remaining semantics (AS-OF selection rule, quality-tier handling, staleness thresholds) from what reconnaissance actually showed - see `docs/spec.md` section 15 for the list of open decisions.
+- Build the real GFSC data pipeline, and **delete `recon/` when it lands** (keeping `findings.md`). `recon/make_overlay.py` is scaffolding: the app depends on its output today only because there is no pipeline yet. Beyond what it does, the real job has to handle multiple MGRS tiles, the UTM zone 32/33 seam (see `findings.md`), XYZ tiles rather than one image per tile, AS-OF pixel selection, and a scheduled fetch - all of which depend on decisions still open below.
 - Pick the rest of the stack: hosted routing API (for the A-to-B planner), geocoder, hosting/data-pipeline shape (a good default: GitHub Actions for the daily GFSC fetch/tile job, object storage for tiles, Netlify for the static frontend + light serverless functions for routing-API calls and point/history queries - Netlify's own scheduled functions are too short-lived, ~10-30s, for the daily data job itself).
 - Build out the rest of `docs/spec.md` in vertical slices: search, OSM object panel + historical chart, A-to-B routing + snow/elevation profile.
 

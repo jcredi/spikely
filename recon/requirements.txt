@@ -12,3 +12,6 @@ tqdm
 # Added for inspecting downloaded GFSC rasters (not part of the client itself).
 rasterio
 numpy
+
+# Added for recon/make_overlay.py, which writes the map overlay PNG.
+pillow

@@ -13,3 +13,8 @@ export const initialView = {
   center: [8.5, 45.3] as [number, number],
   zoom: 6.3,
 };
+
+// The single reprojected GFSC product we currently ship - see
+// recon/make_overlay.py. The sidecar JSON carries the corner coordinates, so
+// swapping products is a one-line change here.
+export const snowOverlayUrl = "/snow/gfsc_32TPS_20260206.json";

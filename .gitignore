@@ -2,11 +2,16 @@
 node_modules/
 .venv/
 recon/.venv/
+__pycache__/
 
 # build output
 dist/
 build/
 .netlify/
+*.tsbuildinfo
+
+# local verification screenshots (npm run shot)
+app/screenshots/
 
 # environment / secrets
 .env
