@@ -8,11 +8,10 @@ in this file only, so the two never drift apart.
 ## What this is
 A free, mobile-friendly web app showing quasi-real-time Copernicus snow-cover data (GFSC) over an outdoor/topo map of the Alps + Italian Apennines, for hikers and mountaineers. Full requirements: @docs/spec.md. Current plan and status: @docs/plan.md.
 
-## Two independent tracks
-- **`app/`** - frontend map shell (MapLibre GL JS + OSM-based topo basemap). No dependency on snow data yet.
-- **`recon/`** - Copernicus GFSC data reconnaissance (Python). Answers how fresh/complete GFSC actually is over our region, what the raster looks like, and what pipeline shape makes sense.
-
-These converge at the "first real snow tile on the map" milestone - see docs/plan.md. Work on them in **separate sessions** (separate terminal windows, cd'd into the relevant folder, or separate worktrees). Don't mix both tracks' context into one conversation.
+## Project areas
+- **`app/`** - frontend map (MapLibre GL JS + OSM-based topo basemap).
+- **`pipeline/`** - production GFSC processing. Its pure AS-OF semantic core is independent of raster I/O so the frozen rules stay directly testable.
+- **`recon/`** - temporary Copernicus GFSC reconnaissance/scaffolding. Delete it when the real pipeline replaces its remaining download/render duties, keeping `findings.md`.
 
 ## Ground rules
 - Early planning/prototyping stage. Favor small, visible, working steps over broad refactors, heavy abstraction, or building for hypothetical scale.
@@ -34,6 +33,11 @@ These converge at the "first real snow tile on the map" milestone - see docs/pla
 - Findings go in `recon/findings.md` as you go - short bullet notes, not a formal write-up.
 - `recon/make_overlay.py` turns one GFSC `GF.tif` into the map overlay in `app/public/snow/`, and self-verifies the georeferencing on every run. It's the one script that writes into `app/`.
 - Never commit downloaded raster samples (see .gitignore) - they're large and not ours to redistribute outside the app itself.
+
+## `pipeline/` conventions
+- Python. Keep the semantic core independent of raster I/O, reprojection, storage, and scheduling; those are adapters around it.
+- AS-OF behavior must match `docs/spec.md` sections 5.2-5.4 and 9.2. Add focused tests for every semantic edge case rather than re-encoding rules in callers.
+- Current tests run with `recon/.venv/bin/python -m unittest pipeline.tests.test_asof` until the production pipeline gets its own environment.
 
 ## Workflow
 - Use plan mode (or the equivalent approval/preview step in whichever tool you are) for anything touching more than one file, or where the approach isn't obvious. Skip it for small, clearly-scoped fixes.

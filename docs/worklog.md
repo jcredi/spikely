@@ -11,6 +11,51 @@ This file is what *we* did and why, across sessions.
 
 ---
 
+## 2026-08-25 - Real pipeline started: AS-OF semantic core
+
+**Did:** Committed and pushed the completed post-reconnaissance semantics/UI
+checkpoint as `5a53bc5`. Added `pipeline/asof.py`, the first production-pipeline
+slice: a vectorized, raster-I/O-independent compositor over aligned GF, GF-QA,
+and AT arrays. Added nine unit tests covering minimal-quality forest data,
+selection tie-breaks, the 14-day gap boundary, day-15 hiding, categorical
+states, terminal water, malformed inputs, and exact freshness factors.
+
+Ran the compositor against real `32TPS` products from 6 and 11 February 2026.
+The 11 February product was about 90.5% no-data by itself; two-date AS-OF
+selection produced 97.22% valid coverage with acquisition ages of 0-11 days,
+0.42% water, and 2.35% remaining no-data.
+
+**Decided:**
+- Put production code in a new `pipeline/` package and keep the semantic core
+  independent of GeoTIFF discovery, reprojection, XYZ writing, storage, and
+  scheduling. Those concerns will wrap one tested implementation of the frozen
+  rules rather than each reimplementing them.
+- Represent validity separately from FSC with explicit valid/cloud/water/stale/
+  no-data states. Non-valid pixels cannot accidentally enter analysis as 0%
+  snow; stale pixels retain acquisition age for truthful UI reporting but not
+  an FSC value.
+- Reject duplicate product dates and misaligned arrays at this boundary. A
+  caller must resolve product versions and grids explicitly instead of making
+  results depend on input order.
+- Use the standard-library `unittest` runner and the existing reconnaissance
+  environment for this first slice; introduce a separate production environment
+  when raster-I/O dependencies land.
+
+**Rejected:**
+- Embedding AS-OF decisions directly in a GeoTIFF/XYZ loop - that would couple
+  correctness to storage and make the rules harder to test in isolation.
+- Treating the sample overlay generator as the production pipeline - it lacks
+  GF-QA/AT and only understands one hardcoded product/tile/UTM zone.
+- Starting with scheduling or object storage before the transformation itself
+  is correct and testable.
+
+**Open / carried forward:** Add a raster-I/O adapter that discovers GF/GF-QA/AT
+triplets, validates their grids/metadata, and feeds them to the compositor. Then
+resolve MGRS overlap/UTM seam policy, produce XYZ output, and add scheduled
+fetch/publish infrastructure. `recon/` remains until those duties are replaced.
+
+---
+
 ## 2026-08-25 - Removed the convergence-only zoom control
 
 **Did:** Removed the throwaway **Zoom to data** button from the snow control,
