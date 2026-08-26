@@ -1,6 +1,6 @@
 # Current plan
 
-**Status:** Real GFSC pipeline in progress - AS-OF core, raster adapter, and seam policy implemented.
+**Status:** Real GFSC pipeline in progress - semantic core, latest-product preview pipeline, and R2 publication implemented and live-verified; CORS, visual check, and cron scheduling still open.
 **Date:** 2026-08-26
 
 ## Why this replaces the original reconnaissance plan
@@ -41,9 +41,17 @@ Take one real downloaded GFSC raster from Track B, reproject/tile it, and render
 ## After convergence
 
 - **DONE - Freeze snow-data semantics from reconnaissance.** Sections 5.2-5.4, 7.1, and 9.2 of `docs/spec.md` now fix the visual encoding, quality/category handling, AS-OF selection, 14-day staleness ceiling, prolonged-gap behavior, and no-interpolation historical-chart rule. The former section 15 items 1-5 have been removed from the open list.
-- **IN PROGRESS - Build the real GFSC data pipeline.** `pipeline/asof.py` applies the frozen per-pixel selection, category, quality, and staleness rules; `pipeline/raster_io.py` discovers complete GF/GF-QA/AT triplets and validates their source grids; `pipeline/mosaic.py` merges overlapping MGRS/UTM-zone composites on a common grid with a deterministic evidence-first rule; `pipeline/tiles.py` colorizes a merged composite per the frozen spec 5.2/5.4 visual encoding and writes it as standard `{z}/{x}/{y}.png` Web Mercator tiles. Next: wire up the daily fetch/schedule/publish job - a GitHub Actions cron that discovers today's products, runs asof -> mosaic -> tiles end to end for the full Alps+Apennines AOI, and writes the result straight into `app/public/` for the existing Netlify deploy to serve (**decided 2026-08-26**, see `docs/spec.md` section 15 item 8 and `docs/worklog.md` - no object storage or on-demand tile server for MVP; that's deferred along with historical AS-OF map browsing, spec section 5.3). Delete `recon/` when those duties are replaced (keeping `findings.md`); its one-image overlay remains scaffolding until then.
+- **IN PROGRESS - Build the real GFSC data pipeline, latest-product preview milestone.** `pipeline/asof.py`/`raster_io.py`/`mosaic.py`/`tiles.py` are the frozen semantic core (selection, quality/staleness, seam merge, colorized XYZ rendering). `pipeline/config.py` (62-tile Alps+Apennines MGRS coverage), `fetch.py` (newest-product-only Copernicus discovery/download), `snapshots.py` (memory-bounded per-z8-metatile rendering), `preview.py` (end-to-end orchestration), and `publish.py` (atomic R2 upload: immutable run first, `latest.json` pointer last) chain those into a runnable preview. `.github/workflows/publish-latest-preview.yml` (manual dispatch only, no cron yet) and `docs/r2-setup.md` wire it to Cloudflare R2. The frontend (`app/src/map/snowOverlay.ts`, `config.ts`, `main.ts`) now loads that R2/local `latest.json` manifest as XYZ tiles, falling back to the checked-in sample overlay if it's unavailable. 41 pipeline tests pass; `npm run build` is clean. Verified against a real R2 bucket with a live 3-tile smoke test (real Copernicus discovery/download, render, atomic upload, public `latest.json` + tile PNG fetch) - see `docs/worklog.md` (2026-08-26).
+
+  **Next session, in order:**
+  1. Add the R2 bucket CORS policy (`docs/r2-setup.md` step 5) - was blocked on an empty bucket, now unblocked since the smoke test populated it.
+  2. Run the app locally with `VITE_SNOW_MANIFEST_URL` pointed at the real R2 `latest.json` and visually verify tiles render correctly across zoom levels - the actual "see what the app looks like" check, not yet done.
+  3. Decide whether to run a full 62-tile publish (locally or via the GitHub Actions workflow) once the visual check on the 3-tile smoke test looks right.
+  4. Decide on a real cron schedule for the workflow (currently manual-only by design) and, separately, whether/when to replace the single-newest-product-per-tile preview with the frozen section 9.2 multi-day AS-OF fallback for the real daily job - today's preview manifest explicitly flags this limitation.
+  5. Optional, pre-public-launch: attach a custom domain in front of the `r2.dev` URL (`docs/r2-setup.md` step 4).
+  6. Delete `recon/` once its download/render duties are fully replaced (keep `findings.md`); its one-image overlay remains the fallback until then.
 - **DONE - Frontend hosting.** `app/` deploys to Netlify (https://spikely.netlify.app), connected to this GitHub repo and auto-deploying on every push to `main`. See `docs/agent-guide.md` for build config.
-- **DONE - Data-pipeline hosting/storage architecture for MVP (2026-08-26).** Daily GitHub Actions job -> static tiles in `app/public/` -> served by the existing Netlify deploy. No object storage or dynamic tile-rendering service for MVP; see `docs/worklog.md` for the full brainstorm and the revisit trigger for arbitrary historical map dates.
+- **DONE, revised same day - Data-pipeline hosting/storage architecture for MVP (2026-08-26).** GitHub Actions job -> immutable run + atomic `latest.json` pointer published to Cloudflare R2 -> app reads the manifest directly from R2. This supersedes the original same-day plan to republish static tiles through the Netlify deploy; see `docs/worklog.md` for both the original brainstorm and the same-day revision (R2 vs. Netlify Blobs vs. Netlify static republish).
 - Pick the rest of the stack: hosted routing API (for the A-to-B planner), geocoder.
 - Build out the rest of `docs/spec.md` in vertical slices: search, OSM object panel + historical chart, A-to-B routing + snow/elevation profile.
 

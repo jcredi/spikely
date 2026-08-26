@@ -1,68 +1,75 @@
 import type { Map } from "maplibre-gl";
 
-/** Sidecar written by recon/make_overlay.py alongside the overlay PNG. */
-export type SnowOverlayMeta = {
+/** Sidecar written by recon/make_overlay.py alongside the fallback PNG. */
+export type SnowImageMeta = {
   image: string;
   product: string;
   tile: string;
-  /** Product date (the daily composite date), ISO yyyy-mm-dd. */
   date: string;
-  sourceCrs: string;
-  sourceResolutionMeters: number;
-  size: [number, number];
-  /** Top-left, top-right, bottom-right, bottom-left - MapLibre's image-source order. */
   coordinates: [[number, number], [number, number], [number, number], [number, number]];
   bounds: [number, number, number, number];
-  coverage: Record<string, number>;
+};
+
+/** Latest-product preview manifest published atomically by pipeline.preview. */
+export type SnowTileManifest = {
+  schemaVersion: number;
+  runId: string;
+  mode: "latest-product-only-preview";
+  asOfDate: string;
+  tiles: string[];
+  minzoom: number;
+  maxzoom: number;
+  bounds: [number, number, number, number];
+  sourceTileCount: number;
+  requestedSourceTileCount?: number;
+  missingSourceTiles?: string[];
+  tileCount: number;
+  notice: string;
 };
 
 export const SOURCE_ID = "gfsc-snow";
 export const LAYER_ID = "gfsc-snow";
 
-// Keep the snow above landcover and hillshade but below everything a hiker
-// navigates by. In MapTiler Outdoor the contour lines are the first layer of
-// that kind; the rest are fallbacks in case the style's layer ids change.
 const INSERT_BEFORE = ["contour_index", "contour", "waterway_river", "water"];
 
 export type SnowOverlay = {
-  meta: SnowOverlayMeta;
+  date: string;
+  summary: string;
+  title: string;
   bounds: [number, number, number, number];
   setVisible: (visible: boolean) => void;
   isVisible: () => boolean;
 };
 
-/**
- * Add one reprojected GFSC product to the map as an image overlay.
- *
- * The PNG is already in EPSG:3857, which is what MapLibre renders in, so its
- * four corners describe an axis-aligned rectangle and the image lands
- * pixel-for-pixel where it belongs - no warping on the client side.
- */
-export async function addSnowOverlay(map: Map, sidecarUrl: string): Promise<SnowOverlay> {
-  const response = await fetch(sidecarUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to load snow overlay metadata: ${response.status} ${sidecarUrl}`);
+function resolveTemplate(template: string, manifestUrl: string): string {
+  const placeholders = ["z", "x", "y"].map(
+    (key) => [`{${key}}`, `__${key.toUpperCase()}__`],
+  );
+  let protectedTemplate = template;
+  for (const [token, placeholder] of placeholders) {
+    protectedTemplate = protectedTemplate.replaceAll(token, placeholder);
   }
-  const meta: SnowOverlayMeta = await response.json();
-  const imageUrl = new URL(meta.image, new URL(sidecarUrl, window.location.href)).href;
+  let resolved = new URL(
+    protectedTemplate,
+    new URL(manifestUrl, window.location.href),
+  ).href;
+  for (const [token, placeholder] of placeholders) {
+    resolved = resolved.replaceAll(placeholder, token);
+  }
+  return resolved;
+}
 
-  map.addSource(SOURCE_ID, {
-    type: "image",
-    url: imageUrl,
-    coordinates: meta.coordinates,
-  });
-
+function finishOverlay(
+  map: Map,
+  info: Pick<SnowOverlay, "date" | "summary" | "title" | "bounds">,
+): SnowOverlay {
   const beforeId = INSERT_BEFORE.find((id) => map.getLayer(id));
-
   map.addLayer(
     {
       id: LAYER_ID,
       type: "raster",
       source: SOURCE_ID,
       paint: {
-        // Opacity is already baked into the PNG's palette alpha, per GFSC value.
-        // Nearest, not linear: at hiking zooms this shows the true 60 m GFSC
-        // pixels rather than a smooth gradient the data doesn't actually have.
         "raster-resampling": "nearest",
         "raster-fade-duration": 0,
       },
@@ -70,21 +77,88 @@ export async function addSnowOverlay(map: Map, sidecarUrl: string): Promise<Snow
     beforeId,
   );
 
-  // Snow at full opacity would paint flat over the basemap's shaded relief, and
-  // a mountain map can't afford to lose that. Re-order so the hillshade draws
-  // *over* the snow instead: the terrain reads through at no cost to snow
-  // contrast. Moving the existing layer rather than adding a second one matters
-  // - two hillshade passes double-shade everywhere the snow isn't.
   const hillshade = map.getStyle().layers.find((layer) => layer.type === "hillshade");
   if (hillshade && beforeId) {
     map.moveLayer(hillshade.id, beforeId);
   }
 
   return {
-    meta,
-    bounds: meta.bounds,
+    ...info,
     setVisible: (visible) =>
       map.setLayoutProperty(LAYER_ID, "visibility", visible ? "visible" : "none"),
     isVisible: () => map.getLayoutProperty(LAYER_ID, "visibility") !== "none",
   };
+}
+
+async function loadTileManifest(manifestUrl: string): Promise<SnowTileManifest> {
+  const response = await fetch(manifestUrl, { cache: "no-cache" });
+  if (!response.ok) {
+    throw new Error(`Failed to load snow manifest: ${response.status} ${manifestUrl}`);
+  }
+  const manifest: SnowTileManifest = await response.json();
+  if (manifest.schemaVersion !== 1 || !manifest.tiles?.length) {
+    throw new Error(`Unsupported snow manifest: ${manifestUrl}`);
+  }
+  return manifest;
+}
+
+function addTilePreview(
+  map: Map,
+  manifest: SnowTileManifest,
+  manifestUrl: string,
+): SnowOverlay {
+  map.addSource(SOURCE_ID, {
+    type: "raster",
+    tiles: manifest.tiles.map((template) => resolveTemplate(template, manifestUrl)),
+    tileSize: 256,
+    minzoom: manifest.minzoom,
+    maxzoom: manifest.maxzoom,
+    bounds: manifest.bounds,
+  });
+  return finishOverlay(map, {
+    date: manifest.asOfDate,
+    summary:
+      manifest.requestedSourceTileCount &&
+      manifest.sourceTileCount < manifest.requestedSourceTileCount
+        ? `latest products · ${manifest.sourceTileCount}/${manifest.requestedSourceTileCount} source tiles`
+        : `latest products · ${manifest.sourceTileCount} source tiles`,
+    title: manifest.notice,
+    bounds: manifest.bounds,
+  });
+}
+
+async function addImageFallback(map: Map, sidecarUrl: string): Promise<SnowOverlay> {
+  const response = await fetch(sidecarUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to load fallback snow metadata: ${response.status} ${sidecarUrl}`);
+  }
+  const meta: SnowImageMeta = await response.json();
+  const imageUrl = new URL(meta.image, new URL(sidecarUrl, window.location.href)).href;
+  map.addSource(SOURCE_ID, {
+    type: "image",
+    url: imageUrl,
+    coordinates: meta.coordinates,
+  });
+  return finishOverlay(map, {
+    date: meta.date,
+    summary: `sample tile ${meta.tile}`,
+    title: meta.product,
+    bounds: meta.bounds,
+  });
+}
+
+/** Load the R2/local XYZ preview, falling back to the checked-in sample tile. */
+export async function addSnowOverlay(
+  map: Map,
+  manifestUrl: string,
+  fallbackSidecarUrl: string,
+): Promise<SnowOverlay> {
+  let manifest: SnowTileManifest;
+  try {
+    manifest = await loadTileManifest(manifestUrl);
+  } catch (error) {
+    console.warn("Snow preview unavailable; using the checked-in sample", error);
+    return addImageFallback(map, fallbackSidecarUrl);
+  }
+  return addTilePreview(map, manifest, manifestUrl);
 }

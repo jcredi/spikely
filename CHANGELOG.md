@@ -14,6 +14,18 @@ Versioned from `0.1.0` (2026-08-25), the first deploy.
   and slices it into standard `{z}/{x}/{y}.png` Web Mercator tiles, skipping
   fully-transparent ones. Eight focused tests, bringing the pipeline suite to
   25 tests.
+- Latest-product-only GFSC preview pipeline: `pipeline/config.py` (62-tile
+  Alps+Apennines MGRS coverage), `fetch.py` (newest-product-only Copernicus
+  catalogue discovery/download), `snapshots.py` (memory-bounded per-metatile
+  rendering), `preview.py` (end-to-end orchestration), and `publish.py`
+  (atomic Cloudflare R2 upload - immutable run first, `latest.json` pointer
+  last). Sixteen new tests, bringing the pipeline suite to 41.
+- `.github/workflows/publish-latest-preview.yml`, a manual-dispatch-only
+  GitHub Actions job that runs the preview pipeline and publishes to R2, and
+  `docs/r2-setup.md` documenting bucket/token/CORS/GitHub secrets setup.
+- Frontend now loads the R2/local `latest.json` XYZ tile manifest
+  (`app/src/map/snowOverlay.ts`, `config.ts`, `main.ts`), falling back to the
+  checked-in one-tile sample overlay if the manifest is unavailable.
 
 ### Changed
 - Spec v1.3: deferred arbitrary historical AS-OF map-date browsing out of MVP
@@ -23,6 +35,11 @@ Versioned from `0.1.0` (2026-08-25), the first deploy.
   through the existing Netlify deploy, no object storage or on-demand
   tile-rendering service for now - and set the EUR 20/month operating-cost
   ceiling. See `docs/worklog.md` (2026-08-26) for the full brainstorm.
+- Spec v1.4: revised the above storage decision the same day, before any of
+  it was built - the MVP pipeline instead publishes to Cloudflare R2 (chosen
+  over Netlify Blobs and over the static-republish plan). Implemented and
+  verified end-to-end against a real bucket with a live 3-tile smoke test.
+  See `docs/worklog.md` (2026-08-26, "R2-based latest-only preview pipeline").
 
 ## [0.1.0] - 2026-08-25
 

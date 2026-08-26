@@ -24,6 +24,10 @@ recon/data/
 *.tiff
 *.jp2
 
+# generated production/preview tile pyramids - published to R2, not Git
+app/public/snow/latest.json
+app/public/snow/runs/
+
 # vendored HR-WSI client's MGRS tile reference file (~16MB, easily re-fetched -
 # see recon/vendor/hrwsi/README.md)
 recon/vendor/hrwsi/MGRS_tiles.gpkg

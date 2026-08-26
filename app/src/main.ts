@@ -1,5 +1,10 @@
 import maplibregl from "maplibre-gl";
-import { initialView, snowOverlayUrl, styleUrl } from "./map/config";
+import {
+  fallbackSnowOverlayUrl,
+  initialView,
+  snowManifestUrl,
+  styleUrl,
+} from "./map/config";
 import { addSnowOverlay } from "./map/snowOverlay";
 import { SnowControl } from "./ui/snowControl";
 import "./style.css";
@@ -21,7 +26,7 @@ map.addControl(new maplibregl.NavigationControl(), "top-right");
 
 map.on("load", async () => {
   try {
-    const overlay = await addSnowOverlay(map, snowOverlayUrl);
+    const overlay = await addSnowOverlay(map, snowManifestUrl, fallbackSnowOverlayUrl);
     map.addControl(new SnowControl(overlay), "top-left");
   } catch (error) {
     // A missing overlay shouldn't take the basemap down with it.

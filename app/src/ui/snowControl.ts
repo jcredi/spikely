@@ -20,8 +20,6 @@ export class SnowControl implements IControl {
   constructor(private readonly overlay: SnowOverlay) {}
 
   onAdd(): HTMLElement {
-    const { meta } = this.overlay;
-
     this.container = document.createElement("div");
     this.container.className = "maplibregl-ctrl maplibregl-ctrl-group snow-ctrl";
 
@@ -40,10 +38,8 @@ export class SnowControl implements IControl {
 
     const metaLine = document.createElement("p");
     metaLine.className = "snow-ctrl__meta";
-    metaLine.textContent = `${formatProductDate(meta.date)} · tile ${meta.tile}`;
-    // The product date is the daily composite date, not the satellite pass -
-    // see docs/spec.md section 7.
-    metaLine.title = meta.product;
+    metaLine.textContent = `${formatProductDate(this.overlay.date)} · ${this.overlay.summary}`;
+    metaLine.title = this.overlay.title;
 
     this.container.append(toggle, metaLine);
     return this.container;

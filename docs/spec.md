@@ -1,8 +1,10 @@
 # Spikely MVP Product Specification
 
-**Status:** Draft v1.3 - MVP data-pipeline architecture decided, historical map browsing deferred
+**Status:** Draft v1.4 - MVP data-pipeline architecture decided, historical map browsing deferred
 **Date:** 2026-08-26  
 **Product stage:** Planning only
+
+**Amendment (v1.4):** Revised the same-day v1.3 storage decision: the MVP data pipeline publishes to Cloudflare R2 (immutable versioned run prefixes plus an atomically-updated `latest.json` pointer), not a static republish through the Netlify deploy. R2 serves tiles directly as public CDN objects with no egress fee, at Netlify credit costs a daily full-site republish would consume quickly. Implemented as `pipeline/preview.py` (orchestration), `fetch.py` (newest-product-only Copernicus discovery/download), `snapshots.py` (memory-bounded per-metatile rendering), and `publish.py` (atomic R2 upload); validated end-to-end against a real bucket. Full reasoning, the Netlify Blobs alternative considered and rejected, and the live verification are in `docs/worklog.md` (2026-08-26). See sections 12 and 15.
 
 **Amendment (v1.3):** Deferred arbitrary historical AS-OF map-date browsing (section 5.3) out of MVP scope; the MVP ships "latest" conditions only, still computed via the frozen section 9.2 AS-OF rule. Decided the MVP data-pipeline/storage architecture: a daily GitHub Actions job renders one static "latest conditions" tile set and republishes it through the existing Netlify frontend deploy - no object storage or on-demand tile-rendering service for now. Set the operating-cost target: free where possible, up to EUR 20/month if it substantially simplifies things. Full reasoning, alternatives considered, and the revisit trigger are in `docs/worklog.md` (2026-08-26). See sections 5.3, 12, 13, and 15.
 
@@ -371,7 +373,7 @@ The app is free to users.
 
 Operating-cost target (decided 2026-08-26): free where possible; up to EUR 20/month is acceptable if it substantially reduces complexity, improves reliability, or avoids building/operating unnecessary infrastructure.
 
-The frontend (`app/`) deploys to Netlify, connected to this GitHub repo and auto-deploying on every push to `main` - see `docs/agent-guide.md` for build config. The MVP data pipeline is a daily GitHub Actions job that renders one static "latest conditions" tile set and republishes it through the same Netlify deploy; no object storage or on-demand tile-rendering service is used for MVP (see section 15 item 8 and `docs/worklog.md`, 2026-08-26).
+The frontend (`app/`) deploys to Netlify, connected to this GitHub repo and auto-deploying on every push to `main` - see `docs/agent-guide.md` for build config. The MVP data pipeline is a GitHub Actions job (manual dispatch for now) that renders one "latest conditions" tile set from the newest available GFSC product per MGRS tile and publishes it to Cloudflare R2 as an immutable run plus an atomically-updated `latest.json` pointer; the app reads that manifest directly from R2 (see section 15 item 8 and `docs/worklog.md`, 2026-08-26).
 
 ## 13. MVP feature scope
 
@@ -428,7 +430,7 @@ Snow/freshness encoding, quality and categorical-code handling, staleness, prolo
 5. Geocoding/search provider.
 6. Hiking routing provider.
 7. Elevation/DEM source.
-8. **Decided for MVP (2026-08-26):** frontend on Netlify (done, see section 12); data pipeline is a daily GitHub Actions job rendering one static "latest conditions" tile set, republished through the same Netlify deploy - no object storage or on-demand tile-rendering service for MVP. Still open for later: the storage/serving architecture needed to bring back arbitrary historical AS-OF map dates (section 5.3). Leading candidate when that's revisited: a per-day compact raster archive in low/no-egress object storage (e.g. Cloudflare R2) plus a small on-demand tile-rendering service reusing the frozen section 9.2 selection logic, cached aggressively since a historical (date, tile) result never changes once computed. Full reasoning and rejected alternatives in `docs/worklog.md` (2026-08-26).
+8. **Decided for MVP (2026-08-26, revised same day):** frontend on Netlify (done, see section 12); data pipeline is a GitHub Actions job rendering one "latest conditions" tile set from the newest GFSC product per MGRS tile, publishing an immutable run plus an atomic `latest.json` pointer to Cloudflare R2 (not a static Netlify republish - see `docs/worklog.md`, 2026-08-26, for the Netlify Blobs/static-republish alternatives considered and rejected). Implemented and validated end-to-end against a real bucket; **still open:** the Cloudflare bucket's CORS policy and (optionally, pre-launch) a custom domain in front of the `r2.dev` URL, plus a first visual check of real R2-served tiles in the running app. Separately still open for later: the storage/serving architecture needed to bring back arbitrary historical AS-OF map dates (section 5.3) - today's pipeline renders only the single newest product per tile, not the frozen section 9.2 multi-day AS-OF fallback, so it is not yet the eventual daily production job as-is. Leading candidate when full historical support is revisited: extend this same R2 archive with a per-day compact raster plus a small on-demand tile-rendering service reusing the frozen section 9.2 selection logic, cached aggressively since a historical (date, tile) result never changes once computed.
 9. **Decided for MVP (2026-08-26):** operating-cost target is free where possible, up to EUR 20/month if it substantially simplifies things (see section 12).
 10. Whether raw FSCOG/FSCTOC (20 m) should be added later as an optional higher-resolution layer for terrain where 60 m GFSC proves too coarse.
 

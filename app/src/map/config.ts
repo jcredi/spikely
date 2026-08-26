@@ -14,7 +14,9 @@ export const initialView = {
   zoom: 6.3,
 };
 
-// The single reprojected GFSC product we currently ship - see
-// recon/make_overlay.py. The sidecar JSON carries the corner coordinates, so
-// swapping products is a one-line change here.
-export const snowOverlayUrl = "/snow/gfsc_32TPS_20260206.json";
+// Production points this at R2 with VITE_SNOW_MANIFEST_URL. A locally rendered
+// preview uses /snow/latest.json; when neither exists the app falls back to the
+// checked-in one-tile reconnaissance overlay.
+export const snowManifestUrl =
+  import.meta.env.VITE_SNOW_MANIFEST_URL || "/snow/latest.json";
+export const fallbackSnowOverlayUrl = "/snow/gfsc_32TPS_20260206.json";

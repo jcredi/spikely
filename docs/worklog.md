@@ -11,6 +11,91 @@ This file is what *we* did and why, across sessions.
 
 ---
 
+## 2026-08-26 - R2-based latest-only preview pipeline: built and live-verified
+
+**Did:** Revised the storage half of the same-day "ship latest only" decision
+below, then implemented and live-tested it. Compared three ways to serve the
+daily-rendered tiles: (A) the originally-decided static republish through the
+existing Netlify deploy, (B) Netlify Blobs, (C) Cloudflare R2. Chose R2, then
+built `pipeline/config.py` (the 62-tile MGRS set covering a 60 km corridor
+around the Alpine arc and Italian Apennine spine, resolved once against
+Copernicus's own `MGRS_tiles.gpkg`), `fetch.py` (lists the HR-WSI S3 catalogue
+and selects/downloads only the single newest complete GF/GF-QA/AT product per
+tile, never historical ones), `snapshots.py` (compact per-tile `.npz`
+composites plus memory-bounded rendering one z8 metatile at a time so the full
+AOI never needs to fit in RAM at once), `preview.py` (chains discovery through
+render to a local `latest.json` and optional R2 publish), and `publish.py`
+(uploads the immutable run first, replaces `latest.json` last, so the app
+never observes a partially-published run). Added `.github/workflows/publish-
+latest-preview.yml` (manual `workflow_dispatch` only) and `docs/r2-setup.md`.
+Updated `app/src/map/snowOverlay.ts`/`config.ts`/`main.ts` to load that XYZ
+manifest, falling back to the checked-in one-tile sample overlay if it's
+unreachable. Added 16 tests (41 total, all passing); `npm run build` is clean.
+
+Then set up a real Cloudflare R2 bucket (bucket-scoped Object Read & Write API
+token, Public Development URL enabled) and ran a live 3-tile smoke test
+(`32TNS 32TNT 33TUN`) end to end: real Copernicus catalogue discovery and
+download (2026-08-25 products), render (292 tiles across z8-11), atomic R2
+upload, and a public fetch of both the resulting `latest.json` and one actual
+tile PNG (`200`, valid 256x256 RGBA) - all successful. Credentials were kept
+out of the coding session entirely: they live only in a gitignored
+`pipeline/.env.r2.local` (matches the existing `.env.*.local` rule; template
+committed as `pipeline/.env.r2.local.example`), sourced into a subshell and
+never read or printed.
+
+**Decided:**
+- Cloudflare R2 over a static Netlify republish: R2 serves tiles as public CDN
+  objects with no egress fee; republishing the full static site through
+  Netlify on every run risks exceeding the Free plan's credit allowance well
+  before meaningful traffic, per Netlify's current per-GB/per-request credit
+  pricing. This revises this same MVP decision from earlier today (see the
+  entry directly below) before any of it was built - the storage question
+  turned out to need settling before the scheduler, not after.
+- R2 over Netlify Blobs: Blobs are private to the owning site and need a
+  Function/Edge Function to serve each read, turning every tile request into
+  an extra hop and consuming Netlify request/bandwidth credits; R2 objects are
+  fetched directly by the CDN. Blobs remain the better fit for the day this
+  pipeline needs private, site-scoped state instead of public read-heavy
+  raster tiles - not the case here.
+- Immutable versioned run prefixes (`runs/<runId>/tiles/...`) plus a single
+  short-TTL `latest.json` pointer, updated only after every object in the run
+  has uploaded. This is what makes the publish atomic from the app's point of
+  view and gives cheap rollback (point `latest.json` at a prior run) without
+  needing R2 versioning or lifecycle rules yet.
+- Keep the GitHub Actions workflow manual-dispatch only, no cron, until a
+  human has visually verified real R2-served tiles in the running app - the
+  smoke test proves the pipe works, not that the rendered result looks right.
+- Preview scope stays "one newest product per MGRS tile," explicitly not the
+  frozen section 9.2 multi-day AS-OF fallback - the manifest's `notice` field
+  says so. Good enough to validate the whole path end-to-end; not yet the
+  eventual daily production job.
+
+**Rejected:**
+- Building the scheduler/cron job before the storage architecture was
+  settled, as originally planned earlier today - would have wired daily
+  automation on top of a storage choice (static Netlify republish) that
+  turned out to be the wrong one once actually compared against alternatives.
+- Verifying R2 only via unit tests with a mocked S3 client - those already
+  passed before any bucket existed and prove the upload *sequence* is
+  correct, not that a real bucket/token/CORS-less public URL actually serves
+  the result to a browser-shaped request. Ran a real 3-tile smoke test against
+  the user's actual bucket instead.
+- Pasting R2 credentials into the coding session to run the smoke test -
+  used a gitignored local env file sourced into a subshell instead, so the
+  values never appear in any transcript or tool output.
+
+**Open / carried forward:** CORS policy not yet applied to the bucket (was
+blocked on an empty bucket per Cloudflare's own CORS-editor prerequisite; the
+smoke test just populated it, so this is now unblocked). No custom domain yet
+- fine short-term, `r2.dev` is rate-limited but usable for this stage. No
+visual verification yet of real R2-served tiles in the running app - the
+actual point of this whole preview milestone, still pending. No cron schedule
+- intentional. `recon/` not yet deleted. The single-newest-product-per-tile
+limitation still needs a decision before this preview becomes the real daily
+job (see `docs/plan.md` "Next session" list for the concrete order).
+
+---
+
 ## 2026-08-26 - MVP data-pipeline/storage architecture: ship "latest only"
 
 **Did:** Brainstormed the data-pipeline hosting/storage architecture (spec
