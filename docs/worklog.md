@@ -25,14 +25,17 @@ grid with a delimited listing: **983 tiles, containing none of the four.**
 So this was never catalogue lag or a discovery bug in `pipeline/fetch.py`;
 these squares are simply not part of the service's production grid.
 
-Why not: decoding each MGRS ID to WGS84 bounds (validated against the
-checked-in `32TPS` sample sidecar, which matched to ~0.01 degrees) places all
-four offshore - `33SVD` 13.83-15.12E/38.84-39.84N and `33SXB`
-16.12-17.39E/37.02-38.03N are open Tyrrhenian and Ionian sea, `33TTF` and
-`33TUE` are Tyrrhenian squares whose only land is a sliver of sea-level
-coastal plain at one corner. The same holds for every other square missing
-from HR-WSI's grid nearby (`33TXG`, `33TYG` mid-Adriatic; `33SUA`, `33SXA`
-Sicily Channel and Ionian) - the grid excludes sea-only squares. The
+Why not: all four are offshore. Per Copernicus's own `MGRS_tiles.gpkg`
+(56,984 Sentinel-2 squares, read straight out of the GeoPackage envelopes),
+`33SVD` is 13.832-15.114E/38.755-39.750N and `33SXB` is
+16.123-17.387E/36.935-37.942N - open Tyrrhenian and Ionian sea - while
+`33TTF` (11.406-12.754E/40.508-41.529N) and `33TUE`
+(12.635-13.949E/39.638-40.646N) are Tyrrhenian squares whose only land is a
+sliver of sea-level coastal plain at one corner. Note what this does and does
+not say: the four *are* valid Sentinel-2 tiles, present in Copernicus's grid.
+They are simply not part of HR-WSI's production grid, which excludes sea-only
+squares - as it also does for every other square missing nearby (`33TXG`,
+`33TYG` mid-Adriatic; `33SUA`, `33SXA` Sicily Channel and Ionian). The
 Apennine spine at those latitudes sits at 15-16E and is covered by `33SWD`,
 `33TVE`, `33TVF` and `33TWE`, all present. No snow-relevant land is lost.
 Removed the four from `MVP_MGRS_TILES` (62 -> 58 tiles) with the evidence
@@ -197,11 +200,18 @@ camera moves are skipped.
   nothing" without saying why, and the prompt's own instruction was not to
   assume transient lag a second time. The listing answered it definitively in
   one call, and cost less than a download.
-- Trusting my own geography for "these are sea tiles." Decoded the MGRS
-  bounds numerically and validated the decoder against a known product's real
-  bounds first, then cross-checked the conclusion against the other squares
-  HR-WSI omits in the same neighbourhood - the pattern (all sea) is what
-  makes the explanation credible rather than a plausible story.
+- Trusting my own geography for "these are sea tiles", and then trusting my
+  own arithmetic for it either. First decoded the MGRS bounds numerically and
+  validated the decoder against a known product's real bounds; then, once
+  Copernicus's `MGRS_tiles.gpkg` turned up locally, checked the derived bounds
+  against the authoritative geometry rather than leaving a derivation in the
+  record. Worth having done: the derived latitudes were uniformly 0.090 deg
+  too far north across all eight tiles checked, because a Sentinel-2 tile
+  extends ~9.8 km past its 100 km MGRS square and I had placed the south edge
+  on the square boundary. A systematic offset, not a misplacement - the sea
+  conclusion is unchanged - but the numbers in this entry are now the
+  authoritative ones. It also sharpened the claim: the four are perfectly
+  valid Sentinel-2 tiles, just not ones HR-WSI produces.
 - Publishing the new encoding straight to production and checking afterwards.
   Ran the full area locally with no `--publish-r2` first, inspected, and only
   then published - the same reasoning as yesterday's "a rendering bug and a
