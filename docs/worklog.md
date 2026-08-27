@@ -116,6 +116,31 @@ what it left as cloud or no-data. The backward search is purely additive - it
 cannot reinterpret fresh data. That also fixes the window size exactly:
 section 9.2's 14-day age ceiling means product dates `D-14..D`, 15 days.
 
+*Verified before publishing, not after.* Ran the full 58-tile area locally
+with no `--publish-r2` (812 products, 1.0 GB downloaded, 3,492 tiles rendered,
+0 missing tiles), captured the live production site's current rendering for
+comparison, then served the local run through a dev server on the
+CORS-allowed port and captured the same five regions. The Bergamasque Prealps
+view - near-solid violet yesterday - resolves to visible terrain with residual
+cloud only where it persisted across the whole window. Only then published the
+exact run already inspected, without re-rendering it. Afterwards confirmed the
+live site had picked it up (`mode: asof-window`, 58 tiles, 0 missing, 24
+requests, 0 failures), and that the workflow's own verify step passes against
+the real published manifest by extracting and running it.
+
+Published with `keep_runs=2` rather than 7 as a deliberate live exercise of the
+prune path on the least valuable object available: it deleted the superseded
+2026-08-26 3-tile smoke-test run and left the previous full-area run intact as
+the rollback target. Retention is the one operation here that deletes
+anything, and last session had already rejected "verified only via a mocked S3
+client" for exactly this kind of code. The workflow uses 7.
+
+Added `npm run verify` for that comparison rather than scripting it ad hoc,
+since the same five regions will be wanted after every encoding change. It
+degrades gracefully against the deployed site, where `window.map` is dev-only:
+manifest, control text and request statuses are still checked, and only the
+camera moves are skipped.
+
 **Decided:**
 - Implement the section 9.2 window *before* enabling the cron, not after.
   Turning on a daily schedule first would have meant publishing a knowingly
@@ -184,6 +209,15 @@ section 9.2's 14-day age ceiling means product dates `D-14..D`, 15 days.
 - A daily cron without a retention policy, which is what "just add a
   schedule" would have produced. The August run size (14 MB) makes unbounded
   retention look harmless; only measuring a *winter* tile showed it is not.
+
+**Found, not fixed:** The app opens at `initialView.zoom` 6.3 but the tile
+pyramid starts at `PREVIEW_MIN_ZOOM = 8`, so a first-time visitor sees the
+"Snow cover" control checked and no snow layer at all until they zoom in.
+Measured on the live site: of 24 requests on first load, 22 were basemap tiles
+and not one was a snow tile. Pre-existing and unrelated to today's change, but
+it now hides real daily data and works against MVP success criterion 1. Left
+for a decision rather than edited quietly, because both fixes (open at z8+, or
+render z6-7) touch a frozen spec choice - see `docs/plan.md`.
 
 **Open / carried forward:** No custom domain in front of `r2.dev` yet
 (optional, pre-launch; needs the Cloudflare dashboard or an Admin-scoped
