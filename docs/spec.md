@@ -1,8 +1,23 @@
 # Spikely MVP Product Specification
 
-**Status:** Draft v1.5 - MVP data pipeline live in production and visually verified
-**Date:** 2026-08-27  
+**Status:** Draft v1.6 - MVP data pipeline live in production, composing the full section 9.2 AS-OF rule on a daily schedule
+**Date:** 2026-08-28  
 **Product stage:** Planning only
+
+**Amendment (v1.6):** The production pipeline now implements section 9.2 in
+full. It loads every complete GFSC product in the 15-day AS-OF window per MGRS
+tile and selects per pixel, replacing the single-newest-product-per-tile
+preview; measured on real winter data this recovers 23-74 percentage points of
+valid coverage on 4 of 6 sampled tile-dates while correctly leaving genuinely
+cloudy multi-day spells missing. The publish workflow moved from
+manual-dispatch to a daily `04:35 UTC` schedule, matched to HR-WSI's measured
+daily cadence and `D+1 00:15-03:00 UTC` publication latency, with a
+seven-run R2 retention bound. The four MVP tiles that never had a product
+(`33SVD`, `33SXB`, `33TTF`, `33TUE`) were confirmed absent from HR-WSI's own
+983-tile grid - all four are open-sea squares - and removed from the tile set,
+so a missing tile now fails the run instead of silently publishing a partial
+map. Full reasoning and measurements in `docs/worklog.md` (2026-08-28). See
+sections 9.2, 12, and 15.
 
 **Amendment (v1.5):** The R2-based preview pipeline (v1.4) is live in
 production: bucket CORS applied, `VITE_SNOW_MANIFEST_URL` set on Netlify, and
@@ -383,7 +398,9 @@ The app is free to users.
 
 Operating-cost target (decided 2026-08-26): free where possible; up to EUR 20/month is acceptable if it substantially reduces complexity, improves reliability, or avoids building/operating unnecessary infrastructure.
 
-The frontend (`app/`) deploys to Netlify, connected to this GitHub repo and auto-deploying on every push to `main` - see `docs/agent-guide.md` for build config. The MVP data pipeline is a GitHub Actions job (manual dispatch for now) that renders one "latest conditions" tile set from the newest available GFSC product per MGRS tile and publishes it to Cloudflare R2 as an immutable run plus an atomically-updated `latest.json` pointer; the app reads that manifest directly from R2 (see section 15 item 8 and `docs/worklog.md`, 2026-08-26).
+The frontend (`app/`) deploys to Netlify, connected to this GitHub repo and auto-deploying on every push to `main` - see `docs/agent-guide.md` for build config. The MVP data pipeline is a GitHub Actions job running daily at `04:35 UTC` (and on manual dispatch) that composes each MGRS tile's 15-day GFSC window under the section 9.2 AS-OF rule, renders one "latest conditions" tile set, and publishes it to Cloudflare R2 as an immutable run plus an atomically-updated `latest.json` pointer; the app reads that manifest directly from R2 (see section 15 item 8 and `docs/worklog.md`, 2026-08-26 and 2026-08-28).
+
+The schedule is set from HR-WSI's measured behavior rather than assumption: products are published strictly daily, and a product dated `D` becomes fetchable at roughly `D+1 00:15-03:00 UTC`. The job keeps only the newest seven runs in R2, which bounds storage inside the free tier - a mid-winter full-area run is roughly 130 MB, so unbounded daily retention would exceed R2's 10 GB allowance within one season. Because the run publishes `latest.json` last and prunes only afterwards, a failed run leaves the previous day's map serving unchanged rather than a partial one.
 
 ## 13. MVP feature scope
 
@@ -440,7 +457,7 @@ Snow/freshness encoding, quality and categorical-code handling, staleness, prolo
 5. Geocoding/search provider.
 6. Hiking routing provider.
 7. Elevation/DEM source.
-8. **Decided for MVP (2026-08-26, revised same day):** frontend on Netlify (done, see section 12); data pipeline is a GitHub Actions job rendering one "latest conditions" tile set from the newest GFSC product per MGRS tile, publishing an immutable run plus an atomic `latest.json` pointer to Cloudflare R2 (not a static Netlify republish - see `docs/worklog.md`, 2026-08-26, for the Netlify Blobs/static-republish alternatives considered and rejected). Implemented, live on production (`https://spikely.netlify.app`), and visually verified end-to-end (2026-08-27): CORS applied, `VITE_SNOW_MANIFEST_URL` set on Netlify, and the full 58/62-tile MVP area published and rendering correctly in the browser - see `docs/worklog.md` (2026-08-27). **Still open:** a custom domain in front of the `r2.dev` URL (optional, pre-launch), a cron schedule for the publish workflow (currently manual-only), and the 4 tiles (`33SVD`, `33SXB`, `33TTF`, `33TUE`) that had no complete product within the lookback window on the last run. Separately still open for later: the storage/serving architecture needed to bring back arbitrary historical AS-OF map dates (section 5.3) - today's pipeline renders only the single newest product per tile, not the frozen section 9.2 multi-day AS-OF fallback, so it is not yet the eventual daily production job as-is - and the 2026-08-27 visual check underlined why: a single cloudy source date leaves large violet (cloud) gaps with no backward search to fill them. Leading candidate when full historical support is revisited: extend this same R2 archive with a per-day compact raster plus a small on-demand tile-rendering service reusing the frozen section 9.2 selection logic, cached aggressively since a historical (date, tile) result never changes once computed.
+8. **Decided for MVP (2026-08-26, revised same day; completed 2026-08-28):** frontend on Netlify (done, see section 12); data pipeline is a GitHub Actions job rendering one "latest conditions" tile set, publishing an immutable run plus an atomic `latest.json` pointer to Cloudflare R2 (not a static Netlify republish - see `docs/worklog.md`, 2026-08-26, for the Netlify Blobs/static-republish alternatives considered and rejected). Implemented, live on production (`https://spikely.netlify.app`), and visually verified end-to-end (2026-08-27, again 2026-08-28). As of 2026-08-28 the job composes the **full section 9.2 AS-OF rule** over a 15-day product window per tile rather than the single newest product, and runs on a **daily `04:35 UTC` schedule** keeping the newest seven runs in R2; the four never-published tiles were removed from the tile set after confirming they are absent from HR-WSI's own grid, so a missing tile now fails the run rather than publishing a partial map. Reasoning and measurements: `docs/worklog.md` (2026-08-28). **Still open:** a custom domain in front of the `r2.dev` URL (optional, pre-launch). Separately still open for later: the storage/serving architecture needed to bring back arbitrary historical AS-OF map dates (section 5.3) - the daily job renders only "today", discarding each day's composite once the next replaces it. Leading candidate when full historical support is revisited: extend this same R2 archive with a per-day compact raster plus a small on-demand tile-rendering service reusing the frozen section 9.2 selection logic, cached aggressively since a historical (date, tile) result never changes once computed. Note that the daily job already downloads the whole 15-day window, so archiving each day's per-tile composite is a smaller step from here than it was from the newest-product-only preview.
 9. **Decided for MVP (2026-08-26):** operating-cost target is free where possible, up to EUR 20/month if it substantially simplifies things (see section 12).
 10. Whether raw FSCOG/FSCTOC (20 m) should be added later as an optional higher-resolution layer for terrain where 60 m GFSC proves too coarse.
 

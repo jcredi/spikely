@@ -7,7 +7,48 @@ Versioned from `0.1.0` (2026-08-25), the first deploy.
 
 ## [Unreleased]
 
+### Changed
+- The published snow map now applies the **full spec section 9.2 AS-OF rule**
+  instead of one newest product per MGRS tile: `pipeline/preview.py` composes
+  every complete GFSC product in the 15-day window (`ASOF_WINDOW_DAYS`) so
+  `pipeline/asof.py` can pick, per pixel, the newest valid acquisition. On
+  real winter data this recovers 23-74 percentage points of valid coverage on
+  4 of 6 sampled tile-dates, and correctly recovers nothing during genuinely
+  cloudy multi-day spells. Manifest `mode` is now `asof-window` (was
+  `latest-product-only-preview`) and carries `asOfWindowDays`,
+  `sourceProductCounts` and `sourceProductTotal`.
+- `.github/workflows/publish-latest-preview.yml` runs **daily at `04:35 UTC`**
+  rather than manual dispatch only, matched to HR-WSI's measured strictly-daily
+  cadence and `D+1 00:15-03:00 UTC` publication latency.
+- `MVP_MGRS_TILES` is 58 tiles, not 62. `33SVD`, `33SXB`, `33TTF` and `33TUE`
+  are absent from HR-WSI's own 983-tile GFSC grid for every year 2016-2026 -
+  all four are open-sea squares the service never produces - so they were
+  never a transient catalogue gap. A tile missing from a run is therefore now
+  a real anomaly, and `build_preview` fails rather than publishing a partial
+  map (`--max-missing-tiles`, default 0), leaving the previous `latest.json`
+  in place.
+
 ### Added
+- R2 retention: `publish.py` can prune all but the newest N runs
+  (`--keep-runs`, set to 7 in the workflow), always after the `latest.json`
+  pointer has moved and never for the run just published. A daily schedule
+  needs this - a mid-winter full-area run is roughly 130 MB, against 14 MB in
+  near-snowless August, so unbounded daily retention would pass R2's 10 GB
+  free tier within one season.
+- `select_window_products` / `discover_window_products` in `pipeline/fetch.py`,
+  returning each tile's whole AS-OF window (one product per date, greatest
+  processing version). Ten new tests, bringing the pipeline suite to 51.
+- `npm run verify` (`app/scripts/verify-snapshot.mjs`) drives a real browser
+  against the deployed site by default, reporting the served manifest, the
+  snow control's user-visible text, and any failed manifest/tile request, then
+  capturing the same five regions every run so two publishes can be compared
+  directly. The existing `npm run shot` remains the local-dev camera script.
+
+### Fixed
+- `publish.py` uploads a run's objects concurrently instead of one at a time;
+  a full-area run is ~3,500 objects and was taking over ten minutes. Still a
+  barrier before the `latest.json` pointer moves, so a partially uploaded run
+  can never be committed.
 - GFSC XYZ tile renderer (`pipeline/tiles.py`) that colorizes a merged AS-OF
   composite per the frozen spec 5.2/5.4 visual encoding (snow-cover ramp,
   freshness-attenuated alpha, violet cloud, transparent water/stale/no-data)

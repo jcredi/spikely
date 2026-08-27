@@ -1,7 +1,7 @@
 # Current plan
 
-**Status:** Real GFSC pipeline live in production - the full 58/62-tile MVP area is published to R2 and visually verified rendering correctly on `https://spikely.netlify.app`. Cron scheduling and the multi-day AS-OF fallback decision are the main things still open.
-**Date:** 2026-08-27
+**Status:** Real GFSC pipeline live in production, running the frozen section 9.2 AS-OF rule over a 15-day window on a daily 04:35 UTC schedule, published to R2 and visually verified on `https://spikely.netlify.app`. The MVP snow layer is functionally complete; the next work is the rest of the app (search, object panel, routing).
+**Date:** 2026-08-28
 
 ## Why this replaces the original reconnaissance plan
 
@@ -45,11 +45,18 @@ Take one real downloaded GFSC raster from Track B, reproject/tile it, and render
 
   **2026-08-27: live in production.** R2 bucket CORS policy applied, `VITE_SNOW_MANIFEST_URL` set on Netlify, and a full-area publish (58/62 tiles - see below) run and verified end-to-end on `https://spikely.netlify.app`: correct manifest/tile URLs baked into the deployed bundle, correct CORS headers from both the production and local-dev origins, and the overlay rendering correctly geo-aligned across multiple regions/zoom levels in a real browser (Playwright against the live site, not a local dev server). See `docs/worklog.md` (2026-08-27) for the full verification, including a direct source-data check that confirmed one heavily-violet (cloud) area was genuine 26 Aug cloud cover, not a rendering bug.
 
-  **Next session, in order:**
-  1. `33SVD`, `33SXB`, `33TTF`, `33TUE` had no complete product within the lookback window on the last run (58/62 tiles) - recheck on a future run; if it recurs, investigate why rather than assuming transient catalogue lag.
-  2. Decide on a real cron schedule for the workflow (currently manual-only by design) and, separately, whether/when to replace the single-newest-product-per-tile preview with the frozen section 9.2 multi-day AS-OF fallback for the real daily job - the 2026-08-27 visual check made concrete why this matters: a single cloudy source day leaves large violet gaps with no backward search to fill them.
-  3. Optional, pre-public-launch: attach a custom domain in front of the `r2.dev` URL (`docs/r2-setup.md` step 4).
-  4. Delete `recon/` once its download/render duties are fully replaced (keep `findings.md`); its one-image overlay remains the fallback until then.
+- **DONE (2026-08-28) - Full section 9.2 AS-OF composition, daily schedule, and the missing-tile mystery.** The three carried-forward items are closed; full reasoning and measurements in `docs/worklog.md` (2026-08-28).
+  - **The 4 tiles were never a pipeline bug.** `33SVD`, `33SXB`, `33TTF` and `33TUE` have zero objects in HR-WSI for every year 2016-2026, across all product families, and are absent from HR-WSI's own 983-tile GFSC grid: all four are open-sea squares the service does not produce. Removed from `MVP_MGRS_TILES` (now 58 tiles, all real), and a missing tile now *fails* the run by default (`--max-missing-tiles`) instead of silently publishing a partial map.
+  - **Daily at `04:35 UTC`,** chosen from measured cadence: products are strictly daily (57/57 consecutive dates, four tiles, three UTM zones) and arrive at `D+1 00:16-02:55 UTC` in steady state.
+  - **The AS-OF fallback was small, not architectural.** `pipeline/asof.py` already implemented the per-pixel backward search; only `preview.py` was restricting it to a one-element list. Now composes the whole 15-day window. Measured on real winter data: +23 to +74 percentage points of valid coverage on 4 of 6 sampled tile-dates, and correctly no change during genuinely cloudy multi-day spells.
+  - **`--keep-runs 7` retention was a prerequisite, not a nicety.** A mid-winter full-area run is ~130 MB (vs 14 MB in near-snowless August), so an unbounded daily cron would pass R2's 10 GB free tier within one season.
+
+  **Next, in order:**
+  1. **The app opens at a zoom where the snow layer cannot render.** `initialView.zoom` is 6.3 (`app/src/map/config.ts`) but the tile pyramid starts at `PREVIEW_MIN_ZOOM = 8`, so a first-time visitor to `https://spikely.netlify.app` sees the "Snow cover" control checked and *no snow layer at all* until they zoom in. Confirmed 2026-08-28 against the live site: of 24 requests on first load, 22 were basemap tiles and not one was a snow tile. This is pre-existing, not caused by the AS-OF change, but it now hides real daily data and undercuts MVP success criterion 1 ("open the app and understand where snow is currently present"). Two candidate fixes - open at z8+, or render z6-7 into the pyramid (more tiles, coarser) - and it interacts with the spec section 5.1 initial-view choice, so it needs a decision rather than a quiet edit.
+  2. Confirm the first unattended scheduled run succeeded (04:35 UTC), and that R2 pruning kept exactly seven runs.
+  3. Optional, pre-public-launch: attach a custom domain in front of the `r2.dev` URL (`docs/r2-setup.md` step 4). Needs the Cloudflare dashboard or an Admin-scoped token - the Object Read & Write token cannot set bucket-level config.
+  4. Move on to the rest of `docs/spec.md` in vertical slices (search, OSM object panel + historical chart, A-to-B routing) - the snow layer is no longer the bottleneck.
+  5. `recon/` stays for now: `.venv` is the pipeline's environment, `data/` is the only local winter archive (it is what made the AS-OF measurement above possible), and `make_overlay.py` is the provenance of the frontend's still-wired fallback image. The trigger for deleting it is removing that fallback, not the pipeline working.
 - **DONE - Frontend hosting.** `app/` deploys to Netlify (https://spikely.netlify.app), connected to this GitHub repo and auto-deploying on every push to `main`. See `docs/agent-guide.md` for build config.
 - **DONE, revised same day - Data-pipeline hosting/storage architecture for MVP (2026-08-26).** GitHub Actions job -> immutable run + atomic `latest.json` pointer published to Cloudflare R2 -> app reads the manifest directly from R2. This supersedes the original same-day plan to republish static tiles through the Netlify deploy; see `docs/worklog.md` for both the original brainstorm and the same-day revision (R2 vs. Netlify Blobs vs. Netlify static republish).
 - Pick the rest of the stack: hosted routing API (for the A-to-B planner), geocoder.

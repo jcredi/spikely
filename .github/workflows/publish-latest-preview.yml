@@ -1,6 +1,17 @@
-name: Publish latest GFSC preview
+name: Publish latest GFSC snapshot
 
 on:
+  # HR-WSI publishes GFSC strictly daily, and a product dated D lands at
+  # roughly D+1 00:15-03:00 UTC (measured 2026-08-27 over 14 consecutive days
+  # on four tiles across three UTM zones: 57/57 product dates present, no gaps,
+  # steady-state arrival 00:16-02:55). 04:35 UTC clears the worst observed
+  # steady-state arrival by ~1h40m, avoids the top-of-hour Actions congestion
+  # that delays scheduled runs, and finishes before the European morning
+  # (06:35 CEST). Occasional multi-day processing backlogs do occur - 13-16 Aug
+  # 2026 all landed together on the 17th - but the 15-day AS-OF window absorbs
+  # them without a special case, and the next day's run picks up the backfill.
+  schedule:
+    - cron: "35 4 * * *"
   workflow_dispatch:
     inputs:
       as_of_date:
@@ -9,6 +20,10 @@ on:
         type: string
       tiles:
         description: "Optional space-separated MGRS tiles; blank uses the full MVP area"
+        required: false
+        type: string
+      max_missing_tiles:
+        description: "Publish even if this many tiles have no product in the window (default 0)"
         required: false
         type: string
 
@@ -21,7 +36,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Build and publish newest products
+    name: Build and publish the AS-OF snapshot
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
@@ -57,12 +72,17 @@ jobs:
         env:
           AS_OF_DATE: ${{ inputs.as_of_date }}
           REQUESTED_TILES: ${{ inputs.tiles }}
+          MAX_MISSING_TILES: ${{ inputs.max_missing_tiles }}
         run: |
+          # --keep-runs 7 bounds R2 storage: a mid-winter full-area run is
+          # roughly 130 MB, so unbounded daily retention would pass R2's 10 GB
+          # free tier inside one season. Seven runs keep a week of rollback.
           args=(
             --raw-dir "${RUNNER_TEMP}/gfsc-raw"
             --work-dir "${RUNNER_TEMP}/gfsc-work"
             --output-dir "${RUNNER_TEMP}/gfsc-output"
             --publish-r2
+            --keep-runs 7
           )
           if [[ -n "${AS_OF_DATE}" ]]; then
             args+=(--as-of "${AS_OF_DATE}")
@@ -71,14 +91,35 @@ jobs:
             read -r -a tiles <<< "${REQUESTED_TILES}"
             args+=(--tiles "${tiles[@]}")
           fi
+          if [[ -n "${MAX_MISSING_TILES}" ]]; then
+            args+=(--max-missing-tiles "${MAX_MISSING_TILES}")
+          fi
           python -m pipeline.preview "${args[@]}"
 
       - name: Verify published pointer
+        env:
+          # Only require full coverage when the run was not explicitly asked to
+          # tolerate gaps, so a deliberate --max-missing-tiles dispatch is not
+          # then failed here for doing what it was told.
+          MAX_MISSING_TILES: ${{ inputs.max_missing_tiles }}
+          REQUESTED_TILES: ${{ inputs.tiles }}
         run: |
           curl --fail --show-error --retry 5 \
             --output "${RUNNER_TEMP}/published-latest.json" \
             "${R2_PUBLIC_BASE_URL%/}/latest.json"
-          python -c 'import json, os; p=os.environ["RUNNER_TEMP"] + "/published-latest.json"; d=json.load(open(p)); assert d["mode"] == "latest-product-only-preview"; assert d["tiles"]'
+          python - <<'PY'
+          import json, os
+          from pipeline.config import MVP_MGRS_TILES
+          d = json.load(open(os.environ["RUNNER_TEMP"] + "/published-latest.json"))
+          assert d["mode"] == "asof-window", d["mode"]
+          assert d["tiles"], "manifest has no tile template"
+          if not int(os.environ.get("MAX_MISSING_TILES") or 0):
+              assert not d["missingSourceTiles"], d["missingSourceTiles"]
+          if not os.environ.get("REQUESTED_TILES"):
+              assert d["sourceTileCount"] == len(MVP_MGRS_TILES), d["sourceTileCount"]
+          print(f"verified run {d['runId']}: {d['sourceTileCount']} source tiles, "
+                f"{d['sourceProductTotal']} products, {d['tileCount']} rendered tiles")
+          PY
 
       - name: Preserve publication metadata
         if: success()

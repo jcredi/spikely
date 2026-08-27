@@ -11,6 +11,192 @@ This file is what *we* did and why, across sessions.
 
 ---
 
+## 2026-08-28 - The 4 missing tiles explained, section 9.2 AS-OF implemented, daily cron enabled
+
+**Did:** Closed out the three carried-forward items from yesterday, in order,
+and each turned out to change the answer to the next one.
+
+*The four tiles.* Rather than re-running a fetch with a longer lookback and
+hoping, listed the HR-WSI S3 catalogue directly for `33SVD`, `33SXB`, `33TTF`
+and `33TUE`. All four have **zero objects** under `GFSC/<tile>/` - not for the
+lookback window, but for every year the bucket holds (2016-2026) - and zero
+under `FSC/`, `SWS/` and `WDS/` too. Then enumerated HR-WSI's own GFSC tile
+grid with a delimited listing: **983 tiles, containing none of the four.**
+So this was never catalogue lag or a discovery bug in `pipeline/fetch.py`;
+these squares are simply not part of the service's production grid.
+
+Why not: decoding each MGRS ID to WGS84 bounds (validated against the
+checked-in `32TPS` sample sidecar, which matched to ~0.01 degrees) places all
+four offshore - `33SVD` 13.83-15.12E/38.84-39.84N and `33SXB`
+16.12-17.39E/37.02-38.03N are open Tyrrhenian and Ionian sea, `33TTF` and
+`33TUE` are Tyrrhenian squares whose only land is a sliver of sea-level
+coastal plain at one corner. The same holds for every other square missing
+from HR-WSI's grid nearby (`33TXG`, `33TYG` mid-Adriatic; `33SUA`, `33SXA`
+Sicily Channel and Ionian) - the grid excludes sea-only squares. The
+Apennine spine at those latitudes sits at 15-16E and is covered by `33SWD`,
+`33TVE`, `33TVF` and `33TWE`, all present. No snow-relevant land is lost.
+Removed the four from `MVP_MGRS_TILES` (62 -> 58 tiles) with the evidence
+recorded in `pipeline/config.py`, which turns "a tile is missing" from
+expected noise into a real signal - so `build_preview` now *fails* by default
+when any requested tile has no product (`--max-missing-tiles`, default 0)
+instead of quietly publishing a partial map.
+
+*Cadence, measured before choosing a cron.* Listed the last two months of
+products for four tiles across three UTM zones and read the S3
+`LastModified` of each layer, which is when a product actually became
+fetchable. Result: **strictly daily**, 57/57 consecutive product dates
+present on every tile with no gaps, and in steady state a product dated `D`
+lands at `D+1 00:16-02:55 UTC` (median ~00:45). There is also a real failure
+mode: 13-16 Aug 2026 all landed together on the 15th and 17th at 14:00-16:45,
+a ~3-day processing backlog later backfilled. Chose `35 4 * * *` - about
+1h40m of margin over the worst observed steady-state arrival, off the top of
+the hour where GitHub delays scheduled runs most, and finished before the
+European morning (06:35 CEST).
+
+*The AS-OF fallback - much smaller than it looked.* The framing carried in
+`docs/plan.md` was that this is the biggest open architectural piece. Reading
+the code first showed it mostly already existed: `pipeline/asof.py`
+`compose_as_of` already takes a *sequence* of daily products and runs the
+full section 9.2 per-pixel backward search, and `preview.py` was the only
+thing restricting it - `load_tile_products([triplet])`, a one-element list.
+So the change was discovery and download (`select_window_products` /
+`discover_window_products`, one product per date with the same
+greatest-version policy, because `raster_io` refuses two versions of the same
+tile/date), plus threading a window through `preview.py`. The frozen semantic
+core needed no change at all.
+
+Quantified the benefit on real data before committing to it, using the
+Jan-Apr 2026 winter products already on disk from the reconnaissance work.
+Composing each date twice - newest product only, then the full 15-day window
+- gives, as percent of tile area valid:
+
+| tile | AS-OF | newest only | 9.2 window | gain |
+| --- | --- | --- | --- | --- |
+| 32TPS | 2026-02-06 | 97.2% | 97.3% | +0.1pp |
+| 32TPS | 2026-02-20 | 13.6% | 39.7% | +26.0pp |
+| 32TPS | 2026-03-10 | 62.1% | 85.6% | +23.5pp |
+| 32TPS | 2026-04-01 | 31.2% | 97.7% | +66.5pp |
+| 33TUG | 2026-02-06 | 7.4% | 8.9% | +1.4pp |
+| 33TUG | 2026-02-20 | 17.6% | 17.6% | +0.0pp |
+| 33TUG | 2026-03-10 | 3.9% | 77.9% | +74.0pp |
+| 33TUG | 2026-04-01 | 18.8% | 51.4% | +32.6pp |
+
+Two things worth keeping in mind about that table. The large gains are real
+but much of the recovered area is 8-14 days old and therefore drawn at
+0.45x opacity per the frozen section 5.2 ramp - the map becomes honest about
+older evidence, not uniformly confident. And on `33TUG` 2026-02-20 the
+fallback adds exactly nothing: 82% cloud with no valid earlier pixel anywhere
+in the window, which is the 14-day ceiling correctly refusing to invent
+coverage. Both are the specified behavior, not a shortfall.
+
+Then re-measured at production scale on the actual published run - all 58
+tiles, 194.2 M pixels, AS-OF 2026-08-27, composed both ways:
+
+| state | newest only | 9.2 window | delta |
+| --- | --- | --- | --- |
+| valid | 46.59% | 69.55% | +22.96pp |
+| cloud | 19.50% | 3.22% | -16.28pp |
+| no-data | 33.01% | 26.33% | -6.68pp |
+| water | 0.90% | 0.90% | 0.00pp |
+| stale | 0.00% | 0.00% | 0.00pp |
+
+Cloud all but disappears (19.5% -> 3.2%), and of the resulting valid pixels
+40.3% are 0-3 days old (full opacity), 26.7% are 4-7 days (0.75x) and 33.0%
+are 8-14 days (0.45x), median 4 days. `water` not moving is the terminal-mask
+rule behaving correctly, and `stale` staying at zero is expected while every
+tile has products throughout the window. The residual 26.33% no-data is
+mostly *not* fillable: it is sea and out-of-mask area inside coastal tiles and
+the Po plain, where no product on any date has a value - the backward search
+removed the 6.68pp that was genuinely recoverable and correctly left the rest.
+
+Also noticed a property that makes this safe: a GFSC product's per-pixel `AT`
+never postdates its own product date, so the newest product always wins
+wherever it holds a valid pixel and the older window members can only fill
+what it left as cloud or no-data. The backward search is purely additive - it
+cannot reinterpret fresh data. That also fixes the window size exactly:
+section 9.2's 14-day age ceiling means product dates `D-14..D`, 15 days.
+
+**Decided:**
+- Implement the section 9.2 window *before* enabling the cron, not after.
+  Turning on a daily schedule first would have meant publishing a knowingly
+  degraded product every day and then changing the encoding under users
+  later; the measured cost of doing it now is one afternoon and 1 GB of
+  download per run instead of 0.07 GB.
+- `--keep-runs 7` retention in R2, and a daily cron *requires* it. Measured
+  rendered output per source tile: 0.24 MB in August (near-snowless, so
+  almost everything compresses to near-transparent), but 3.1 MB for a snowy
+  Alpine tile (`32TPS`, 2026-02-20) and ~1 MB for Apennine tiles. That puts
+  a mid-winter full-area run around 130 MB, so unbounded daily retention
+  would pass R2's 10 GB free tier inside a single season - against the
+  section 12 "free where possible" target. Seven runs keeps a week of
+  rollback at roughly 1 GB steady state.
+- Prune only *after* `latest.json` has been replaced, and never prune the run
+  just published (checked explicitly by run ID rather than trusting it to
+  sort newest, so a clock skew cannot delete the run being committed).
+- Upload the run's objects concurrently (16 workers, matching `fetch.py`).
+  This was not a premature optimization - it came out of the first real
+  publish attempt of a 3,492-object run, which was still uploading
+  sequentially after ten minutes. `ThreadPoolExecutor.map` keeps the property
+  that matters: it is a barrier, so every object is uploaded and any failure
+  re-raised before `latest.json` moves.
+- Default `keep_runs=None` - never delete anything - so retention only
+  happens where it is asked for explicitly, in the workflow. Deleting objects
+  from the user's bucket should not be a silent default of a library call.
+- Keep `discover_latest_products` / `select_latest_products` rather than
+  replacing them, and keep `--window-days 1` working as an exact reproduction
+  of the old newest-product-only behavior. It is the natural control when
+  something looks wrong in a published run, and it is what produced the
+  comparison table above.
+- **Do not delete `recon/` yet** (the session's item 5), because three of its
+  parts are still load-bearing rather than scaffolding, and today made that
+  sharper rather than less so. `recon/.venv` *is* the environment the pipeline
+  runs in (yesterday's decision, still true). `recon/data/` holds the Jan-Apr
+  2026 winter product archive - gitignored, so not a repo-size question - and
+  it is the only local winter data there is; it is what made today's AS-OF
+  measurement possible at all, and it would be needed again to re-measure any
+  change to the section 5.2/9.2 encoding out of season. `recon/make_overlay.py`
+  is the provenance of `app/public/snow/gfsc_32TPS_20260206.png`, which is
+  still the frontend's fallback when the R2 manifest is unreachable; deleting
+  the script while the asset stays wired in would leave an unreproducible
+  binary in the repo. The concrete trigger is therefore not "the pipeline
+  works" but **"the fallback is removed"**: once the daily cron has a track
+  record and `app/src/map/config.ts` no longer needs the checked-in sample,
+  `make_overlay.py` and the asset go together, and `recon/` reduces to
+  `findings.md` plus the vendored HR-WSI client kept as the provenance of the
+  public S3 credentials in `pipeline/fetch.py`.
+
+**Rejected:**
+- Re-running a targeted fetch with a longer `--lookback-days` for the four
+  tiles, as the session prompt suggested as the first step. Started with the
+  catalogue listing instead because a fetch can only ever report "still
+  nothing" without saying why, and the prompt's own instruction was not to
+  assume transient lag a second time. The listing answered it definitively in
+  one call, and cost less than a download.
+- Trusting my own geography for "these are sea tiles." Decoded the MGRS
+  bounds numerically and validated the decoder against a known product's real
+  bounds first, then cross-checked the conclusion against the other squares
+  HR-WSI omits in the same neighbourhood - the pattern (all sea) is what
+  makes the explanation credible rather than a plausible story.
+- Publishing the new encoding straight to production and checking afterwards.
+  Ran the full area locally with no `--publish-r2` first, inspected, and only
+  then published - the same reasoning as yesterday's "a rendering bug and a
+  cloudy day look identical on screen", applied before rather than after.
+- A daily cron without a retention policy, which is what "just add a
+  schedule" would have produced. The August run size (14 MB) makes unbounded
+  retention look harmless; only measuring a *winter* tile showed it is not.
+
+**Open / carried forward:** No custom domain in front of `r2.dev` yet
+(optional, pre-launch; needs the Cloudflare dashboard or an Admin-scoped
+token, same limitation as the CORS policy last session). `recon/` deliberately
+not deleted - see the decision above for what still depends on it and the
+concrete trigger. Arbitrary historical AS-OF map dates remain deferred
+(section 5.3), though the daily job now downloads the whole 15-day window
+anyway, so archiving per-day composites is a smaller step from here than it
+was yesterday. The first unattended scheduled run has not happened yet - it
+will fire at 04:35 UTC.
+
+---
+
 ## 2026-08-27 - Production wiring fixed, full-area MVP published and visually verified
 
 **Did:** Picked up from a diagnostic (run right after `52aac84` landed, not yet

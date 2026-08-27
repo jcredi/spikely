@@ -10,12 +10,14 @@ export type SnowImageMeta = {
   bounds: [number, number, number, number];
 };
 
-/** Latest-product preview manifest published atomically by pipeline.preview. */
+/** AS-OF snapshot manifest published atomically by pipeline.preview. */
 export type SnowTileManifest = {
   schemaVersion: number;
   runId: string;
-  mode: "latest-product-only-preview";
+  mode: "asof-window";
   asOfDate: string;
+  /** Product dates composed per spec section 9.2; 15 covers its 14-day ceiling. */
+  asOfWindowDays?: number;
   tiles: string[];
   minzoom: number;
   maxzoom: number;
@@ -23,6 +25,7 @@ export type SnowTileManifest = {
   sourceTileCount: number;
   requestedSourceTileCount?: number;
   missingSourceTiles?: string[];
+  sourceProductTotal?: number;
   tileCount: number;
   notice: string;
 };
@@ -115,13 +118,17 @@ function addTilePreview(
     maxzoom: manifest.maxzoom,
     bounds: manifest.bounds,
   });
+  const coverage =
+    manifest.requestedSourceTileCount &&
+    manifest.sourceTileCount < manifest.requestedSourceTileCount
+      ? `${manifest.sourceTileCount}/${manifest.requestedSourceTileCount} source tiles`
+      : `${manifest.sourceTileCount} source tiles`;
   return finishOverlay(map, {
     date: manifest.asOfDate,
-    summary:
-      manifest.requestedSourceTileCount &&
-      manifest.sourceTileCount < manifest.requestedSourceTileCount
-        ? `latest products · ${manifest.sourceTileCount}/${manifest.requestedSourceTileCount} source tiles`
-        : `latest products · ${manifest.sourceTileCount} source tiles`,
+    // The control already renders the AS-OF date, so don't repeat it here; the
+    // notice tooltip carries the "newest valid observation, up to 14 days back"
+    // explanation in full.
+    summary: coverage,
     title: manifest.notice,
     bounds: manifest.bounds,
   });

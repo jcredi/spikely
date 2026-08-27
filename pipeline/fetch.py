@@ -54,19 +54,15 @@ def _month_prefixes(tile: str, start: date, end: date) -> list[str]:
     return prefixes
 
 
-def select_latest_products(
-    objects: Iterable[CatalogObject],
-    tiles: Sequence[str],
-    start: date,
-    end: date,
-    *,
-    require_all: bool = True,
-) -> dict[str, CatalogProduct]:
-    """Select one complete, newest product per tile from catalogue objects.
+def _complete_products(
+    objects: Iterable[CatalogObject], start: date, end: date
+) -> dict[str, list[CatalogProduct]]:
+    """Group catalogue objects into complete products, keyed by MGRS tile.
 
-    If Copernicus publishes more than one processing version for the newest
-    product date, the lexicographically greatest version wins. This is an
-    explicit preview publication policy, never filesystem-order selection.
+    Only products carrying all three required layers are returned; a partially
+    published product is not a usable observation. Products are returned for
+    every tile present in ``objects``, unfiltered and unsorted, so callers can
+    apply their own selection policy.
     """
 
     grouped: dict[tuple[str, date, str, str], dict[str, CatalogObject]] = {}
@@ -92,14 +88,35 @@ def select_latest_products(
             raise ValueError(f"duplicate {layer} object for {metadata['product']}")
         layers[layer] = item
 
-    requested = tuple(tile.upper() for tile in tiles)
+    by_tile: dict[str, list[CatalogProduct]] = {}
+    for (tile, product_date, version, product), layers in grouped.items():
+        if layers.keys() != _REQUIRED_LAYERS:
+            continue
+        by_tile.setdefault(tile, []).append(
+            CatalogProduct(tile, product_date, version, product, layers)
+        )
+    return by_tile
+
+
+def select_latest_products(
+    objects: Iterable[CatalogObject],
+    tiles: Sequence[str],
+    start: date,
+    end: date,
+    *,
+    require_all: bool = True,
+) -> dict[str, CatalogProduct]:
+    """Select one complete, newest product per tile from catalogue objects.
+
+    If Copernicus publishes more than one processing version for the newest
+    product date, the lexicographically greatest version wins. This is an
+    explicit preview publication policy, never filesystem-order selection.
+    """
+
+    by_tile = _complete_products(objects, start, end)
     selected: dict[str, CatalogProduct] = {}
-    for tile in requested:
-        candidates: list[CatalogProduct] = []
-        for (candidate_tile, product_date, version, product), layers in grouped.items():
-            if candidate_tile != tile or layers.keys() != _REQUIRED_LAYERS:
-                continue
-            candidates.append(CatalogProduct(tile, product_date, version, product, layers))
+    for tile in (tile.upper() for tile in tiles):
+        candidates = by_tile.get(tile, [])
         if not candidates:
             if require_all:
                 raise ValueError(
@@ -109,6 +126,44 @@ def select_latest_products(
         selected[tile] = max(
             candidates, key=lambda product: (product.product_date, product.version)
         )
+    return selected
+
+
+def select_window_products(
+    objects: Iterable[CatalogObject],
+    tiles: Sequence[str],
+    start: date,
+    end: date,
+    *,
+    require_all: bool = False,
+) -> dict[str, tuple[CatalogProduct, ...]]:
+    """Select every complete product per tile, one per product date.
+
+    This is the input the spec section 9.2 per-pixel backward search needs: the
+    whole window, not just its newest member. Exactly one product is kept per
+    product date - the lexicographically greatest processing version, matching
+    ``select_latest_products`` - because ``pipeline.raster_io`` treats two
+    versions of the same tile/date as an unresolved ambiguity and refuses them.
+    Results are ordered oldest to newest so downstream ordering is never
+    inherited from catalogue listing order.
+    """
+
+    by_tile = _complete_products(objects, start, end)
+    selected: dict[str, tuple[CatalogProduct, ...]] = {}
+    for tile in (tile.upper() for tile in tiles):
+        candidates = by_tile.get(tile, [])
+        if not candidates:
+            if require_all:
+                raise ValueError(
+                    f"no complete GFSC product found for {tile} from {start} through {end}"
+                )
+            continue
+        by_date: dict[date, CatalogProduct] = {}
+        for candidate in candidates:
+            incumbent = by_date.get(candidate.product_date)
+            if incumbent is None or candidate.version > incumbent.version:
+                by_date[candidate.product_date] = candidate
+        selected[tile] = tuple(by_date[day] for day in sorted(by_date))
     return selected
 
 
@@ -125,16 +180,9 @@ def _client():
     )
 
 
-def discover_latest_products(
-    tiles: Sequence[str],
-    as_of_date: date,
-    lookback_days: int = 21,
-    *,
-    require_all: bool = True,
-    workers: int = 16,
-) -> dict[str, CatalogProduct]:
-    """List recent catalogue metadata without downloading historical products."""
-
+def _list_window(
+    tiles: Sequence[str], as_of_date: date, lookback_days: int, workers: int
+) -> tuple[date, list[CatalogObject]]:
     if lookback_days < 1:
         raise ValueError("lookback_days must be at least 1")
     start = as_of_date - timedelta(days=lookback_days - 1)
@@ -156,7 +204,43 @@ def discover_latest_products(
     with ThreadPoolExecutor(max_workers=workers) as executor:
         pages = executor.map(list_prefix, prefixes)
         objects = [item for page in pages for item in page]
+    return start, objects
+
+
+def discover_latest_products(
+    tiles: Sequence[str],
+    as_of_date: date,
+    lookback_days: int = 21,
+    *,
+    require_all: bool = True,
+    workers: int = 16,
+) -> dict[str, CatalogProduct]:
+    """List recent catalogue metadata without downloading historical products."""
+
+    start, objects = _list_window(tiles, as_of_date, lookback_days, workers)
     return select_latest_products(
+        objects, tiles, start, as_of_date, require_all=require_all
+    )
+
+
+def discover_window_products(
+    tiles: Sequence[str],
+    as_of_date: date,
+    window_days: int,
+    *,
+    require_all: bool = False,
+    workers: int = 16,
+) -> dict[str, tuple[CatalogProduct, ...]]:
+    """List every complete product per tile across the AS-OF window.
+
+    Unlike ``discover_latest_products`` this keeps the whole window, which is
+    what the section 9.2 per-pixel backward search consumes. Catalogue listing
+    cost is unchanged - the same month prefixes are enumerated either way - only
+    the number of products subsequently downloaded grows.
+    """
+
+    start, objects = _list_window(tiles, as_of_date, window_days, workers)
+    return select_window_products(
         objects, tiles, start, as_of_date, require_all=require_all
     )
 

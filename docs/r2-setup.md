@@ -1,9 +1,11 @@
-# Cloudflare R2 setup for the GFSC preview
+# Cloudflare R2 setup for the GFSC snapshot
 
-The manual preview workflow publishes only the newest complete GFSC product
-for each requested MGRS tile. It uploads an immutable run first and replaces
-`latest.json` only after every tile is present, so the app never sees a partial
-publication. It does not download or retain historical products.
+The publish workflow renders one "latest conditions" tile set for the whole MVP
+area, composing each MGRS tile's 15-day GFSC window under the spec section 9.2
+AS-OF rule. It uploads an immutable run first and replaces `latest.json` only
+after every tile is present, so the app never sees a partial publication. It
+keeps the newest seven runs and prunes older ones after the pointer has moved;
+it does not build a historical archive.
 
 ## One-time Cloudflare setup
 
@@ -72,13 +74,16 @@ Add three repository variables (they are configuration, not credentials):
 The workflow has read-only repository permission. Its R2 token can write only
 to the selected bucket; do not use a Cloudflare-wide administrative token.
 
-## Run and verify the preview
+## Run and verify the snapshot
 
-In **GitHub > Actions > Publish latest GFSC preview > Run workflow**, leave both
-inputs blank for today's newest products across the full Alps and Apennines MVP
-area. `as_of_date` can reproduce a catalogue cutoff without changing the
-newest-product-only behavior. `tiles` accepts a space-separated subset such as
-`32TNS 32TNT 33TUN` for a cheaper smoke test.
+The workflow runs itself daily at `04:35 UTC`. To run it by hand, use
+**GitHub > Actions > Publish latest GFSC snapshot > Run workflow** and leave the
+inputs blank for today's snapshot across the full Alps and Apennines MVP area.
+`as_of_date` reproduces an earlier catalogue cutoff (the AS-OF window moves with
+it). `tiles` accepts a space-separated subset such as `32TNS 32TNT 33TUN` for a
+cheaper smoke test. `max_missing_tiles` raises the tolerance for tiles with no
+product in the window - the default of `0` fails the run instead of publishing a
+partial map, which leaves the previously published `latest.json` serving.
 
 Equivalent GitHub CLI commands are:
 
@@ -112,8 +117,10 @@ python -m pipeline.preview \
   --raw-dir /tmp/spikely-gfsc/raw \
   --work-dir /tmp/spikely-gfsc/work \
   --output-dir /tmp/spikely-gfsc/output \
-  --publish-r2
+  --publish-r2 --keep-runs 7
 ```
 
 Use an explicit, sufficiently large scratch location instead of `/tmp` if the
-machine's temporary volume is small. Never commit the downloaded GeoTIFFs.
+machine's temporary volume is small: a full-area window run downloads roughly
+1 GB of GeoTIFFs. Never commit them. Omit `--keep-runs` to leave every existing
+run in place; it is the only flag here that deletes anything.

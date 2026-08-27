@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from affine import Affine
 
-from pipeline.preview import _downloaded_triplets, _local_latest, _parse_date, build_preview
+from pipeline.preview import _downloaded_triplets, _local_window, _parse_date, build_preview
 from pipeline.fetch import CatalogProduct
 from pipeline.raster_io import ProductTriplet, RasterGrid
 
@@ -27,38 +27,56 @@ class PreviewHelpersTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "YYYY-MM-DD"):
             _parse_date("10/02/2026")
 
-    def test_local_latest_filters_future_dates_and_resolves_versions(self) -> None:
+    def test_local_window_bounds_the_window_and_resolves_versions(self) -> None:
         as_of = date(2026, 2, 10)
         discovered = [
             triplet("32TPS", date(2026, 2, 9), "V100"),
             triplet("32TPS", as_of, "V101"),
             triplet("32TPS", as_of, "V102"),
             triplet("32TPS", date(2026, 2, 11), "V999"),
+            triplet("32TPS", date(2026, 1, 26), "V100"),
         ]
         with patch("pipeline.preview.discover_product_triplets", return_value=discovered):
-            selected = _local_latest(Path("raw"), ["32TPS"], as_of)
-        self.assertEqual(selected["32TPS"].version, "V102")
+            selected = _local_window(Path("raw"), ["32TPS"], as_of, 15)
 
-    def test_local_latest_reports_all_missing_tiles(self) -> None:
+        # 2026-02-11 is after the AS-OF date and 2026-01-26 is before the
+        # 15-day window opens on 2026-01-27; the AS-OF date keeps V102.
+        self.assertEqual(
+            [(item.product_date, item.version) for item in selected["32TPS"]],
+            [(date(2026, 2, 9), "V100"), (as_of, "V102")],
+        )
+
+    def test_local_window_reports_all_missing_tiles(self) -> None:
         with patch("pipeline.preview.discover_product_triplets", return_value=[]):
             with self.assertRaisesRegex(ValueError, "32TPS, 33TUM"):
-                _local_latest(Path("raw"), ["33TUM", "32TPS"], date(2026, 2, 10))
+                _local_window(Path("raw"), ["33TUM", "32TPS"], date(2026, 2, 10), 15)
 
-    def test_downloaded_triplets_maps_catalog_products_and_reports_missing(self) -> None:
-        found = triplet("32TPS", date(2026, 2, 10), "V100")
-        catalog = CatalogProduct("32TPS", found.product_date, found.version, found.product, {})
-        with patch("pipeline.preview.discover_product_triplets", return_value=[found]):
-            selected = _downloaded_triplets(Path("raw"), {"32TPS": catalog})
-        self.assertIs(selected["32TPS"], found)
+    def test_downloaded_triplets_maps_whole_windows_and_reports_missing(self) -> None:
+        older = triplet("32TPS", date(2026, 2, 9), "V100")
+        newer = triplet("32TPS", date(2026, 2, 10), "V100")
 
-        missing = CatalogProduct("33TUM", found.product_date, "V100", "missing-product", {})
-        with patch("pipeline.preview.discover_product_triplets", return_value=[found]):
+        def catalog(item) -> CatalogProduct:
+            return CatalogProduct("32TPS", item.product_date, item.version, item.product, {})
+
+        with patch(
+            "pipeline.preview.discover_product_triplets", return_value=[older, newer]
+        ):
+            selected = _downloaded_triplets(
+                Path("raw"), {"32TPS": (catalog(older), catalog(newer))}
+            )
+        self.assertEqual(selected["32TPS"], (older, newer))
+
+        missing = CatalogProduct("33TUM", newer.product_date, "V100", "missing-product", {})
+        with patch("pipeline.preview.discover_product_triplets", return_value=[newer]):
             with self.assertRaisesRegex(ValueError, "missing-product"):
-                _downloaded_triplets(Path("raw"), {"33TUM": missing})
+                _downloaded_triplets(Path("raw"), {"33TUM": (missing,)})
 
     def test_build_preview_writes_latest_manifest_and_hands_off_completed_run(self) -> None:
-        first = triplet("32TPS", date(2026, 2, 9), "V100")
-        second = triplet("33TUM", date(2026, 2, 10), "V100")
+        first = (
+            triplet("32TPS", date(2026, 2, 8), "V100"),
+            triplet("32TPS", date(2026, 2, 9), "V100"),
+        )
+        second = (triplet("33TUM", date(2026, 2, 10), "V100"),)
         grid = RasterGrid("EPSG:3857", Affine(1, 0, 0, 0, -1, 1), 1, 1)
 
         def persist(path, _tile) -> None:
@@ -69,8 +87,8 @@ class PreviewHelpersTests(unittest.TestCase):
             root = Path(tmp)
             output = root / "output"
             with (
-                patch("pipeline.preview._local_latest", return_value={"32TPS": first, "33TUM": second}) as local,
-                patch("pipeline.preview.load_tile_products", return_value=SimpleNamespace(grid=grid, products=(object(),))),
+                patch("pipeline.preview._local_window", return_value={"32TPS": first, "33TUM": second}) as local,
+                patch("pipeline.preview.load_tile_products", return_value=SimpleNamespace(grid=grid, products=(object(),))) as load,
                 patch("pipeline.preview.compose_as_of", return_value=object()),
                 patch("pipeline.preview.save_snapshot", side_effect=persist),
                 patch("pipeline.preview.render_snapshots", return_value=[Path("one.png"), Path("two.png")]),
@@ -87,15 +105,50 @@ class PreviewHelpersTests(unittest.TestCase):
                     publish=True,
                 )
 
-            local.assert_called_once_with(root / "raw", ("32TPS", "33TUM"), date(2026, 2, 10))
+            local.assert_called_once_with(
+                root / "raw", ("32TPS", "33TUM"), date(2026, 2, 10), 15
+            )
+            # The whole window reaches the loader, not just its newest member.
+            self.assertEqual([call.args[0] for call in load.call_args_list], [first, second])
             self.assertEqual(metadata["sourceTiles"], ["32TPS", "33TUM"])
+            self.assertEqual(metadata["mode"], "asof-window")
+            self.assertEqual(metadata["asOfWindowDays"], 15)
+            self.assertEqual(metadata["sourceProductCounts"], {"32TPS": 2, "33TUM": 1})
+            self.assertEqual(metadata["sourceProductTotal"], 3)
+            # productDates reports each tile's newest contributing product.
+            self.assertEqual(
+                metadata["productDates"], {"32TPS": "2026-02-09", "33TUM": "2026-02-10"}
+            )
             self.assertEqual(metadata["tileCount"], 2)
             self.assertEqual(metadata["bounds"], [5.0, 40.0, 16.0, 48.0])
             run_dir = output / "runs" / str(metadata["runId"])
             self.assertEqual(json.loads((run_dir / "run.json").read_text()), metadata)
             latest = json.loads((output / "latest.json").read_text())
             self.assertEqual(latest["tiles"], [f"runs/{metadata['runId']}/tiles/{{z}}/{{x}}/{{y}}.png"])
-            publish.assert_called_once_with(run_dir, metadata)
+            publish.assert_called_once_with(run_dir, metadata, keep_runs=None)
+
+    def test_build_preview_refuses_to_publish_a_partial_area_by_default(self) -> None:
+        found = (triplet("32TPS", date(2026, 2, 10), "V100"),)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("pipeline.preview._local_window", return_value={"32TPS": found}),
+                patch("pipeline.preview.publish_to_r2") as publish,
+            ):
+                with self.assertRaisesRegex(ValueError, "33TUM"):
+                    build_preview(
+                        as_of_date=date(2026, 2, 10),
+                        tiles=["32TPS", "33TUM"],
+                        raw_dir=root / "raw",
+                        work_dir=root / "work",
+                        output_dir=root / "output",
+                        fetch=False,
+                        publish=True,
+                    )
+            # Nothing is rendered or published, so the previously published
+            # latest.json keeps pointing at the last complete run.
+            publish.assert_not_called()
+            self.assertFalse((root / "output" / "latest.json").exists())
 
 
 if __name__ == "__main__":
