@@ -27,6 +27,13 @@ Versioned from `0.1.0` (2026-08-25), the first deploy.
   (`app/src/map/snowOverlay.ts`, `config.ts`, `main.ts`), falling back to the
   checked-in one-tile sample overlay if the manifest is unavailable.
 
+### Added
+- Full 58/62-tile MVP-area GFSC preview published to production R2, with the
+  bucket's CORS policy applied and `VITE_SNOW_MANIFEST_URL` set on Netlify -
+  `https://spikely.netlify.app` now serves the real snow-cover overlay,
+  visually verified across multiple regions and zoom levels against the live
+  site. See `docs/worklog.md` (2026-08-27).
+
 ### Changed
 - Spec v1.3: deferred arbitrary historical AS-OF map-date browsing out of MVP
   scope (OSM-object historical chart is unaffected and stays required).
@@ -40,6 +47,9 @@ Versioned from `0.1.0` (2026-08-25), the first deploy.
   over Netlify Blobs and over the static-republish plan). Implemented and
   verified end-to-end against a real bucket with a live 3-tile smoke test.
   See `docs/worklog.md` (2026-08-26, "R2-based latest-only preview pipeline").
+- Spec v1.5: recorded the 2026-08-27 production verification and the still-open
+  items (cron schedule, AS-OF multi-day fallback, 4 tiles missing a current
+  product). See `docs/worklog.md` (2026-08-27).
 
 ## [0.1.0] - 2026-08-25
 

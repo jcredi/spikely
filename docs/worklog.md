@@ -11,6 +11,93 @@ This file is what *we* did and why, across sessions.
 
 ---
 
+## 2026-08-27 - Production wiring fixed, full-area MVP published and visually verified
+
+**Did:** Picked up from a diagnostic (run right after `52aac84` landed, not yet
+acted on) that found the deployed site was still showing nothing real: its
+`/snow/latest.json` 404'd, `VITE_SNOW_MANIFEST_URL` had never been set as a
+Netlify env var (so Vite baked in the local-file fallback at build time), the
+R2 bucket's CORS policy from `docs/r2-setup.md` step 5 was still unapplied,
+and only the earlier 3-tile smoke test had ever been published - a local
+`npm run build` had looked fine only because gitignored local `snow/`
+artifacts from manual testing were still sitting on disk, never committed.
+
+Tried applying the CORS policy myself via the R2 S3 API (`boto3
+put_bucket_cors`, credentials sourced from `pipeline/.env.r2.local` into a
+subshell as usual) - got `AccessDenied`. The bucket's API token is scoped to
+"Object Read & Write" per `docs/r2-setup.md` step 2, which covers object
+operations but not bucket-level configuration like CORS; that needs either
+an Admin-scoped token or the Cloudflare dashboard. Same story for the Netlify
+env var and redeploy: no Netlify credentials or CLI auth were available in
+this non-interactive session. Asked the user to do those three dashboard
+steps directly (Cloudflare R2 CORS policy, add `VITE_SNOW_MANIFEST_URL` in
+Netlify without pasting the value in chat, "Clear cache and deploy site").
+
+While that was pending, ran the full 62-tile MVP publish locally - reused
+`recon/.venv` rather than building a new environment, since it already had
+rasterio/numpy/boto3/Pillow from the earlier reconnaissance work, and
+`pipeline` imports cleanly under it. 58 of 62 tiles had a complete product
+within the 21-day lookback as of 2026-08-27 (`33SVD`, `33SXB`, `33TTF`,
+`33TUE` did not - worth rechecking on a later run rather than a pipeline
+bug, since `32TNP` in the same neighborhood came back 84% no-data on its own
+newest product too); rendered 3,411 tiles across z8-11 and published them
+atomically to R2 (run `20260827T132216Z`).
+
+Once the user confirmed the dashboard steps, verified all of it end-to-end:
+downloaded the live production JS bundle and confirmed the real `r2.dev`
+manifest URL is baked in (not the local-file fallback); `curl`-checked CORS
+preflight and actual-request headers from both the production origin and a
+local Vite dev origin against `latest.json` and a tile PNG (all correct);
+confirmed R2's `latest.json` pointer had moved to the new 58-tile run. Then
+did the actual "see what the app looks like" check that had been deferred
+twice before: a Playwright script drove the live `https://spikely.netlify.app`
+(not a local dev server) across several regions and zoom levels. All 71
+tile/manifest requests captured during the run returned `200` from `r2.dev`,
+and the overlay renders correctly geo-aligned to the basemap. One area (the
+Bergamasque Prealps around Vedeseta/Olda) rendered as almost solid violet
+(cloud) at hiking zoom, enough to double-check it wasn't a rendering bug:
+sampling the raw downloaded `GF.tif` for that exact sub-region directly
+confirmed 62.4% real cloud fraction there on the 26 Aug 2026 source product,
+with the rest at valid 0%-snow (expected for August, and rendered at a
+nearly-invisible 10%-opacity per the frozen ramp) - genuine weather on a
+single source day, not a bug, and a concrete illustration of why the
+single-newest-product-per-tile preview (no section 9.2 AS-OF backward
+search yet) leaves visible gaps.
+
+**Decided:**
+- Reuse `recon/.venv` for pipeline runs instead of provisioning a separate
+  `pipeline` virtualenv - it already has every dependency in
+  `pipeline/requirements.txt`, and `pipeline` imports and runs correctly
+  under it. No need for a second environment until something in the two
+  dependency sets actually diverges.
+- Account-level dashboard steps (R2 CORS, Netlify env vars, Netlify
+  redeploys) are the user's to run directly, not something to route through
+  credentials pasted into the session - consistent with the existing
+  R2-credential-handling rule, extended to Netlify/Cloudflare account access
+  more generally now that this session had no automatable path to either.
+
+**Rejected:**
+- Installing and interactively authenticating `gh`/`netlify` CLIs to
+  automate the dashboard steps - this is a non-interactive session, so no
+  OAuth browser flow could complete either way, and account-scoped
+  dashboard changes are exactly the kind of action that should go through
+  the user directly regardless.
+- Trusting the visual "wall of violet" over the Prealps at face value
+  without checking it against source data - verified against the raw `GF.tif`
+  for that exact sub-region first, since a rendering bug and a genuinely
+  cloudy day would look identical on screen but call for very different
+  next steps.
+
+**Open / carried forward:** The 4 tiles with no current product
+(`33SVD`, `33SXB`, `33TTF`, `33TUE`) - recheck on a future run. No cron
+schedule yet (intentional). No custom domain yet. `recon/` not yet deleted.
+The single-newest-product-per-tile limitation is now visually confirmed to
+matter in practice (see the Prealps cloud check above), strengthening the
+case for prioritizing the section 9.2 AS-OF multi-day fallback decision
+next. See `docs/plan.md` for the concrete next-session order.
+
+---
+
 ## 2026-08-26 - R2-based latest-only preview pipeline: built and live-verified
 
 **Did:** Revised the storage half of the same-day "ship latest only" decision

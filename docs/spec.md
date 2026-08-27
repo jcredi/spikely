@@ -1,8 +1,18 @@
 # Spikely MVP Product Specification
 
-**Status:** Draft v1.4 - MVP data-pipeline architecture decided, historical map browsing deferred
-**Date:** 2026-08-26  
+**Status:** Draft v1.5 - MVP data pipeline live in production and visually verified
+**Date:** 2026-08-27  
 **Product stage:** Planning only
+
+**Amendment (v1.5):** The R2-based preview pipeline (v1.4) is live in
+production: bucket CORS applied, `VITE_SNOW_MANIFEST_URL` set on Netlify, and
+the full 58/62-tile MVP area published and visually verified rendering
+correctly on `https://spikely.netlify.app` across multiple regions and zoom
+levels. Still open: a cron schedule for the publish workflow, the section 9.2
+multi-day AS-OF fallback (a single cloudy source day currently leaves visible
+gaps - see the verification writeup), and 4 tiles without a current product
+in the last run. Full detail in `docs/worklog.md` (2026-08-27). See sections
+12 and 15.
 
 **Amendment (v1.4):** Revised the same-day v1.3 storage decision: the MVP data pipeline publishes to Cloudflare R2 (immutable versioned run prefixes plus an atomically-updated `latest.json` pointer), not a static republish through the Netlify deploy. R2 serves tiles directly as public CDN objects with no egress fee, at Netlify credit costs a daily full-site republish would consume quickly. Implemented as `pipeline/preview.py` (orchestration), `fetch.py` (newest-product-only Copernicus discovery/download), `snapshots.py` (memory-bounded per-metatile rendering), and `publish.py` (atomic R2 upload); validated end-to-end against a real bucket. Full reasoning, the Netlify Blobs alternative considered and rejected, and the live verification are in `docs/worklog.md` (2026-08-26). See sections 12 and 15.
 
@@ -430,7 +440,7 @@ Snow/freshness encoding, quality and categorical-code handling, staleness, prolo
 5. Geocoding/search provider.
 6. Hiking routing provider.
 7. Elevation/DEM source.
-8. **Decided for MVP (2026-08-26, revised same day):** frontend on Netlify (done, see section 12); data pipeline is a GitHub Actions job rendering one "latest conditions" tile set from the newest GFSC product per MGRS tile, publishing an immutable run plus an atomic `latest.json` pointer to Cloudflare R2 (not a static Netlify republish - see `docs/worklog.md`, 2026-08-26, for the Netlify Blobs/static-republish alternatives considered and rejected). Implemented and validated end-to-end against a real bucket; **still open:** the Cloudflare bucket's CORS policy and (optionally, pre-launch) a custom domain in front of the `r2.dev` URL, plus a first visual check of real R2-served tiles in the running app. Separately still open for later: the storage/serving architecture needed to bring back arbitrary historical AS-OF map dates (section 5.3) - today's pipeline renders only the single newest product per tile, not the frozen section 9.2 multi-day AS-OF fallback, so it is not yet the eventual daily production job as-is. Leading candidate when full historical support is revisited: extend this same R2 archive with a per-day compact raster plus a small on-demand tile-rendering service reusing the frozen section 9.2 selection logic, cached aggressively since a historical (date, tile) result never changes once computed.
+8. **Decided for MVP (2026-08-26, revised same day):** frontend on Netlify (done, see section 12); data pipeline is a GitHub Actions job rendering one "latest conditions" tile set from the newest GFSC product per MGRS tile, publishing an immutable run plus an atomic `latest.json` pointer to Cloudflare R2 (not a static Netlify republish - see `docs/worklog.md`, 2026-08-26, for the Netlify Blobs/static-republish alternatives considered and rejected). Implemented, live on production (`https://spikely.netlify.app`), and visually verified end-to-end (2026-08-27): CORS applied, `VITE_SNOW_MANIFEST_URL` set on Netlify, and the full 58/62-tile MVP area published and rendering correctly in the browser - see `docs/worklog.md` (2026-08-27). **Still open:** a custom domain in front of the `r2.dev` URL (optional, pre-launch), a cron schedule for the publish workflow (currently manual-only), and the 4 tiles (`33SVD`, `33SXB`, `33TTF`, `33TUE`) that had no complete product within the lookback window on the last run. Separately still open for later: the storage/serving architecture needed to bring back arbitrary historical AS-OF map dates (section 5.3) - today's pipeline renders only the single newest product per tile, not the frozen section 9.2 multi-day AS-OF fallback, so it is not yet the eventual daily production job as-is - and the 2026-08-27 visual check underlined why: a single cloudy source date leaves large violet (cloud) gaps with no backward search to fill them. Leading candidate when full historical support is revisited: extend this same R2 archive with a per-day compact raster plus a small on-demand tile-rendering service reusing the frozen section 9.2 selection logic, cached aggressively since a historical (date, tile) result never changes once computed.
 9. **Decided for MVP (2026-08-26):** operating-cost target is free where possible, up to EUR 20/month if it substantially simplifies things (see section 12).
 10. Whether raw FSCOG/FSCTOC (20 m) should be added later as an optional higher-resolution layer for terrain where 60 m GFSC proves too coarse.
 
