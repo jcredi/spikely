@@ -53,6 +53,15 @@ function formatCoordinates(record: ObjectRecord): string {
   return `${lat}, ${lon}`;
 }
 
+/** Kind, elevation, and coordinates on one line - the owner's compacting request. */
+function formatSubtitle(record: ObjectRecord): string {
+  const kind = KIND_LABELS[record.kind].label;
+  const parts = [kind];
+  if (record.elevationMeters !== null) parts.push(`${Math.round(record.elevationMeters)} m`);
+  parts.push(formatCoordinates(record));
+  return parts.join(" · ");
+}
+
 export class ObjectPanel {
   readonly element: HTMLElement;
 
@@ -195,22 +204,12 @@ export class ObjectPanel {
   }
 
   private renderRecord(record: ObjectRecord): void {
-    const kind = KIND_LABELS[record.kind];
     this.title.textContent = record.name;
-    this.subtitle.textContent =
-      record.elevationMeters === null
-        ? kind.label
-        : `${kind.label} · ${Math.round(record.elevationMeters)} m`;
-
-    const facts = element("dl", "object-panel__facts");
-    const addFact = (term: string, value: string): void => {
-      facts.append(element("dt", "object-panel__term", term));
-      facts.append(element("dd", "object-panel__value", value));
-    };
-    addFact("Coordinates", formatCoordinates(record));
-    // The durable identity, shown on purpose: it is what a snow-history
-    // lookup will key on, and what makes a wrong match checkable.
-    addFact("OSM object", record.id);
+    // Kind, elevation, and coordinates share one line (owner's compacting
+    // request) - "Coordinates" as a heading was redundant with the content,
+    // and the raw OSM id stays the identity source in code (it is still what
+    // a snow-history lookup keys on) without being shown in the panel.
+    this.subtitle.textContent = formatSubtitle(record);
 
     const history = new ObjectHistorySection({
       record,
@@ -218,7 +217,7 @@ export class ObjectPanel {
       asOfIso: this.getAsOfIso(),
     });
 
-    this.body.replaceChildren(facts, history.element);
+    this.body.replaceChildren(history.element);
     this.reveal();
   }
 

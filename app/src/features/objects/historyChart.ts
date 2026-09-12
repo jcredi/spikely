@@ -131,12 +131,16 @@ export class ObjectHistorySection {
 
     if (options.seriesBaseUrl === null) {
       this.client = null;
-      this.statusEl = el(
-        "p",
-        "object-history__note",
+      // No series source is configured at all (no VITE_OBJECT_SERIES_URL,
+      // true everywhere until docs/plan.md item 1's backfill runs) - this is
+      // not one of the chart's four honest gap states (cloud/no_data/stale/
+      // missing-AS-OF), it is "there is nothing to ask for", so the panel
+      // says so as plainly as possible rather than with a full explanatory
+      // sentence every time.
+      this.statusEl = el("p", "object-history__note", "N/A");
+      this.statusEl.title =
         "Not available yet. The per-object GFSC time series is not published, " +
-          "so this panel shows no snow values rather than an empty chart.",
-      );
+        "so this panel shows no snow values rather than an empty chart.";
       this.chartHost = el("div", "object-history__chart");
       this.detailEl = el("p", "object-history__detail");
       this.element.append(this.statusEl);

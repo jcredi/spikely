@@ -19,6 +19,15 @@
   --panel-shadow:
     0 12px 32px rgba(15, 23, 42, 0.14),
     0 2px 8px rgba(15, 23, 42, 0.08);
+  /* The object panel is the one surface that sits directly over a busy topo
+     basemap for as long as it is open (every other frosted panel sits over a
+     mostly-flat area, or only briefly). It gets its own, slightly more
+     transparent token rather than a change to --panel-bg, so the rest of the
+     frosted-glass UI is untouched; a stronger blur+saturate keeps text
+     contrast as the map shows through more. */
+  --object-panel-bg: rgba(255, 255, 255, 0.66);
+  --object-panel-border: rgba(255, 255, 255, 0.5);
+  --object-panel-blur: 28px;
 }
 
 * {
@@ -215,54 +224,94 @@ body {
 }
 
 /*
- * With a catalogue to pick from, the pill becomes a real control and needs a
- * real touch target - the 0.625rem label is fine to read and far too small to
- * hit. Everything else about it stays put: same position, same pill, so the
- * page does not reflow when the catalogue arrives after first paint.
+ * With a catalogue to pick from, the pill becomes a real control: a label
+ * (the date the slider is currently on) over a native range slider, per the
+ * owner's own "slider or calendar" suggestion - see dateControl.ts for why a
+ * slider won over a hand-built calendar grid. It needs real vertical room for
+ * both rows and a real touch target on the track, so unlike the read-only
+ * pill it is allowed to be taller; it still stays horizontally centred in the
+ * same spot so the page does not jump when the catalogue arrives after first
+ * paint.
  */
 .snow-date--interactive {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  min-height: 2rem;
-  padding: 0 0.75rem;
-  font-size: 0.6875rem;
+  display: flex;
+  padding: 0.375rem 0.75rem 0.5rem;
 }
 
-.snow-date--interactive::after {
-  content: "▾";
-  font-size: 0.5625rem;
-  line-height: 1;
-  opacity: 0.7;
+.snow-date__slider-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.125rem;
+  width: min(13rem, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 4rem));
+}
+
+.snow-date__label {
+  align-self: center;
+  font-size: 0.6875rem;
+  font-weight: 500;
 }
 
 /*
- * A native <select>, stripped back to the pill's own typography. It keeps the
- * platform picker, the touch behaviour and the accessibility for free; only
- * the chrome is removed.
+ * A native <input type="range">, stepped one stop per catalogue date (never
+ * continuous days), restyled just enough to fit the pill. Keyboard behaviour
+ * (arrow keys, Home/End, Page Up/Down), dragging, and touch handling all stay
+ * the platform's own; only the track/thumb colors are custom.
  */
-.snow-date__select {
+.snow-date__slider {
   appearance: none;
   -webkit-appearance: none;
+  width: 100%;
+  height: 1.5rem;
   margin: 0;
-  padding: 0.25rem 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: inherit;
+  background: transparent;
   cursor: pointer;
-  /* iOS Safari zooms the page on focus for anything under 16px; the option
-     list is the platform's own, so this only affects the collapsed control. */
-  max-width: 12rem;
 }
 
-.snow-date__select:focus-visible {
-  outline: 2px solid var(--focus-ring, currentColor);
+.snow-date__slider::-webkit-slider-runnable-track {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.14);
+}
+
+.snow-date__slider::-moz-range-track {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.14);
+}
+
+.snow-date__slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin-top: -0.4375rem;
+  border-radius: 50%;
+  background: var(--accent-strong);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.35);
+}
+
+.snow-date__slider::-moz-range-thumb {
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 50%;
+  background: var(--accent-strong);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.35);
+}
+
+.snow-date__slider:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--focus-ring, var(--accent-strong));
   outline-offset: 2px;
-  border-radius: 0.25rem;
 }
 
-.snow-date--loading .snow-date__select {
+.snow-date__slider:focus-visible::-moz-range-thumb {
+  outline: 2px solid var(--focus-ring, var(--accent-strong));
+  outline-offset: 2px;
+}
+
+.snow-date--loading .snow-date__slider {
   cursor: progress;
   opacity: 0.6;
 }
@@ -306,14 +355,17 @@ body {
 .snow-ctrl__info {
   display: grid;
   place-items: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border: none;
+  /* Was 1.75rem - visibly larger than the toggle it sits beside and than its
+     own glyph needs. A smaller frame with a hairline border reads as a
+     deliberate small icon button rather than an oversized circle. */
+  width: 1.375rem;
+  height: 1.375rem;
+  border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.72);
   color: var(--text-secondary);
   cursor: pointer;
-  font: 700 0.75rem/1 system-ui, -apple-system, sans-serif;
+  font: 700 0.625rem/1 system-ui, -apple-system, sans-serif;
 }
 
 .snow-ctrl__info:hover {
@@ -538,10 +590,10 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0.75rem 0.875rem 0.875rem;
-  background: var(--panel-bg);
-  backdrop-filter: blur(var(--panel-blur)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--panel-blur)) saturate(180%);
-  border: 1px solid var(--panel-border);
+  background: var(--object-panel-bg);
+  backdrop-filter: blur(var(--object-panel-blur)) saturate(200%);
+  -webkit-backdrop-filter: blur(var(--object-panel-blur)) saturate(200%);
+  border: 1px solid var(--object-panel-border);
   border-radius: var(--panel-radius);
   box-shadow: var(--panel-shadow);
   font:
@@ -617,24 +669,6 @@ body {
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--text-secondary);
-}
-
-.object-panel__facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.25rem 0.75rem;
-  font-size: 0.75rem;
-}
-
-.object-panel__term {
-  font-weight: 500;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.object-panel__value {
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
 }
 
 /* Snow history chart (spec section 7.1) - hand-rolled inline SVG, no charting
