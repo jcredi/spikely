@@ -116,8 +116,26 @@ try {
     await page.waitForTimeout(600);
     await page.mouse.click(viewport.width / 2, viewport.height / 2);
     await page.waitForSelector(".object-panel:not([hidden])", { timeout: 5_000 });
+    // Wait for the panel to reach its FINAL height before measuring anything.
+    // The snow history section fills asynchronously - it fetches a slot map
+    // and a ranged read from R2 - so a panel measured while it still says
+    // "Loading history..." is shorter than the one the user ends up looking
+    // at. Measuring too early is how a real overlap slipped through: the
+    // chart landed after the check had already passed. A settled panel is
+    // one showing a chart, or an explicit terminal message.
+    await page.waitForFunction(
+      () => {
+        const history = document.querySelector(".object-history");
+        if (!history) return false;
+        if (history.querySelector(".object-history__chart svg")) return true;
+        const status = history.querySelector(".object-history__status, .object-history__note");
+        return Boolean(status && !status.hidden && !/Loading history/.test(status.textContent ?? ""));
+      },
+      null,
+      { timeout: 30_000 },
+    );
     // The snow control eases into its lifted position; measure after that.
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(600);
 
     const withPanel = await page.evaluate(() => {
       const panel = document.querySelector(".object-panel")?.getBoundingClientRect();

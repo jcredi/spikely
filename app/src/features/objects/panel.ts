@@ -109,6 +109,8 @@ export class ObjectPanel {
   }
 
   /** Called when the user picks one of an ambiguous tap's candidates. */
+  private sizeObserver: ResizeObserver | null = null;
+
   setChoiceHandler(handler: (record: ObjectRecord) => void): void {
     this.onChoose = handler;
   }
@@ -119,6 +121,8 @@ export class ObjectPanel {
   }
 
   close(): void {
+    this.sizeObserver?.disconnect();
+    this.sizeObserver = null;
     this.element.hidden = true;
     document.documentElement.style.setProperty("--object-panel-height", "0px");
   }
@@ -223,7 +227,21 @@ export class ObjectPanel {
 
   private reveal(): void {
     this.element.hidden = false;
-    // Read back the laid-out height so the snow control can clear it.
+    this.publishHeight();
+    // The panel keeps growing after this point: the snow history section is
+    // filled asynchronously, so measuring once here captures the height of a
+    // panel that still says "Loading history...". That stale value is what
+    // let a real chart push the panel up over the snow control on a 320px
+    // viewport - caught by `npm run check-mobile-layout`, which is exactly
+    // what that check exists for. Track the element instead of the moment.
+    this.sizeObserver?.disconnect();
+    this.sizeObserver = new ResizeObserver(() => this.publishHeight());
+    this.sizeObserver.observe(this.element);
+  }
+
+  /** Publish the laid-out height so the snow control can clear it. */
+  private publishHeight(): void {
+    if (this.element.hidden) return;
     const height = this.element.getBoundingClientRect().height;
     document.documentElement.style.setProperty("--object-panel-height", `${Math.round(height)}px`);
   }

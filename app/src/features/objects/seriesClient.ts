@@ -7,8 +7,16 @@
  * `object_slots.py` exactly (see `seriesFormat.ts` and `slotMapSchema.ts` for
  * the decoded shapes):
  *
- *   `<seriesBaseUrl>/slots/<TILE>.json`           - permanent id -> row slot
- *   `<seriesBaseUrl>/series/<TILE>/<YYYY-MM>.bin` - one calendar month, object-major
+ *   `<seriesBaseUrl>/object-index/slots/<TILE>.json` - permanent id -> row slot
+ *   `<seriesBaseUrl>/series/<TILE>/<YYYY-MM>.bin`    - one calendar month, object-major
+ *
+ * The two prefixes differ because the artifacts have different lifecycles and
+ * different owners in the bucket: slot maps are permanent state published
+ * beside the object index they are keyed to (`publish_object_series.py` writes
+ * them under `object-index/`), while month files are ordinary run output at
+ * the bucket root. `seriesBaseUrl` is therefore the bucket root, and is still
+ * the single trust anchor - both paths are resolved against it and must stay
+ * on its origin and directory.
  *
  * The whole point of the object-major layout (`docs/plan.md` item 1,
  * `object_series.object_month_range`) is that one object's whole month is a
@@ -173,7 +181,7 @@ export class SeriesClient {
     const cached = this.slotMaps.get(tile);
     if (cached) return cached;
     const promise = (async () => {
-      const url = new URL(`slots/${tile}.json`, this.base()).href;
+      const url = new URL(`object-index/slots/${tile}.json`, this.base()).href;
       const document = await fetchJson(url, MAX_SLOT_MAP_BYTES, `slot map for ${tile}`);
       if (document === null) return null;
       try {

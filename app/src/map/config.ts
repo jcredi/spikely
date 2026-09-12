@@ -45,16 +45,24 @@ export const objectIndexUrl =
   "https://pub-1b43c7d267ad44228b11f94fc251b9ac.r2.dev/object-index/object-index.json";
 
 // The per-object GFSC time series (spec section 7.1) - a permanent per-tile
-// slot map plus `series/<TILE>/<YYYY-MM>.bin` month files, published beside
-// the object index (`docs/plan.md` item 1; `app/src/features/objects/seriesClient.ts`
-// is the reader). Unlike `objectIndexUrl` and `snowManifestUrl`, this has
-// deliberately **no committed local fixture fallback**: the backfill has not
-// run and nothing is published yet, and a checked-in snow-history fixture
-// would ship inside `public/` and be indistinguishable from a real reading -
-// exactly the hazard documented in `docs/agent-guide.md` for the removed
-// offline snow raster. Until this is set, the history section reports the
-// series as unavailable rather than showing anything.
-export const objectSeriesUrl: string | null = import.meta.env.VITE_OBJECT_SERIES_URL || null;
+// slot map plus `series/<TILE>/<YYYY-MM>.bin` month files
+// (`app/src/features/objects/seriesClient.ts` is the reader, and holds the two
+// prefixes: slot maps live under `object-index/`, month files at the root, so
+// this value is the bucket root).
+//
+// Live since 2026-09-12: the daily pipeline samples every window product into
+// these files, so the first run alone populated the whole trailing 31 days -
+// which is the entire window spec amendment v1.13 asks the chart to draw.
+//
+// There is still **no local fixture fallback**, and there must never be one: a
+// checked-in snow-history file would ship inside `public/` and be
+// indistinguishable from a real reading, exactly the hazard documented in
+// `docs/agent-guide.md` for the removed offline snow raster. Point this at a
+// real publication or leave it unset; the history section reports the series
+// as unavailable rather than inventing anything.
+export const objectSeriesUrl: string | null =
+  import.meta.env.VITE_OBJECT_SERIES_URL ||
+  "https://pub-1b43c7d267ad44228b11f94fc251b9ac.r2.dev/";
 
 // Approximate Alps + Italian Apennines bounding box (west, south, east,
 // north), used only to bias place-search results (spec section 6.1) toward

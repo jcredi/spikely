@@ -245,11 +245,21 @@ export class ObjectHistorySection {
     }
 
     for (const tick of layout.xAxisTicks) {
+      // A centred label on the first or last tick overflows the viewBox by
+      // half its width and gets clipped (measured on the right edge with
+      // "11 Sept"). Anchor the outermost ticks inward instead, so a date at
+      // either end stays fully readable at phone width.
+      const anchor =
+        tick.x <= layout.plotLeft + 1
+          ? "start"
+          : tick.x >= layout.plotLeft + layout.plotWidth - 1
+            ? "end"
+            : "middle";
       const label = svgEl("text", {
         x: tick.x,
         y: layout.gapTickY + 14,
         class: "object-history__axis-label",
-        "text-anchor": "middle",
+        "text-anchor": anchor,
       });
       label.textContent = tick.label;
       svg.append(label);
