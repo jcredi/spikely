@@ -133,6 +133,55 @@ routing (item 2)**; item 1 is now watching rather than building.
 - **The recovery path is unrehearsed** - revoke the publication key, restore
   trusted code, rebuild dependencies, republish known-good data.
 
+## Ideas parked - owner's, 2026-09-13, not scheduled
+
+Neither is committed to; both are recorded so they are not re-invented from
+scratch, and because the second one needs its risks written down *before*
+anyone gets enthusiastic about it.
+
+- **Flag suspicious values in the data rather than only rendering them.**
+  Worth doing, and cheap. The per-object series already carries everything a
+  detector needs - GF, QA tier, observation age - and
+  `docs/research/gfsc-findings.md` (2026-09-13) has the first real measurements
+  to calibrate against. Candidate signals, in rough order of
+  value-per-effort: a large day-over-day swing where *both* endpoints are
+  age 0 (the Monte Cevedale shape); a value far from its neighbours' on the
+  same day at similar elevation, which is what separates a sampling fault from
+  weather; a whole tile flipping together, which is the opposite signature and
+  usually real; and a value physically implausible for its elevation and date.
+  The honest output is a flag on the mark - "this looks odd" - never
+  suppression: hiding a suspect reading is the same class of lie as inventing
+  one. Note the trap found on 2026-09-13: 82% of marks are the product's own
+  gap-fill, so any detector must compare like with like or it will flag every
+  carried-forward run as an anomaly.
+
+- **Estimating snow depth.** Attractive, and the part that looks hard is not
+  the part that is hard. Honest assessment:
+  - GFSC measures fractional *area* covered, not depth. There is no sound
+    conversion: 100% cover is 5 cm or 5 m. Any depth figure would come from a
+    model driven by other inputs, with GFSC only constraining where snow is.
+  - Errors would be largest exactly where the decisions are - wind-loaded lee
+    slopes, gullies, cornices - because depth varies over metres in terrain
+    that a model at any tractable resolution cannot see.
+  - It is avalanche-adjacent. This app already refuses to show a months-old
+    raster because it could be read as current (spec section 5.4); a modelled
+    depth carries the same hazard with a wider blast radius, since a number
+    reads as more authoritative than an image. Authoritative regional
+    avalanche bulletins exist and a hobby estimate sitting beside them is
+    worse than no estimate.
+  - **The better version of this idea, and the one worth trying first: show
+    measured depth, don't model it.** Public alpine station networks publish
+    real snow-depth readings - SLF/IMIS in Switzerland, the regional
+    Lawinenwarndienste in Austria, AINEVA/Meteomont in Italy. Surfacing the
+    nearest stations' *actual* measurements, with their distance and elevation
+    difference stated plainly, gives a mountaineer something real to reason
+    from and invents nothing. It also fits the existing architecture: another
+    static periodic fetch published to R2, no new running server.
+  - If modelling is ever attempted anyway, the honest form is a range wide
+    enough to be uncomfortable, labelled an estimate, never a single number -
+    and it should be checked against held-out station data before it ships,
+    not after.
+
 ## Explicitly not doing yet
 
 Full Europe coverage, user accounts, saved routes, GPX/KML upload, native
