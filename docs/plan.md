@@ -13,99 +13,34 @@ Cloudflare R2 on a daily 04:35 UTC schedule, and has run unattended since
 2026-08-28. Place search (section 6.1) is done, on MapTiler Geocoding. A
 security review and its remediation closed on 2026-09-09; posture is in
 [`security.md`](security.md). The mobile-first UI was verified on a real
-handset on 2026-09-11. Next work is the OSM object panel and A-to-B routing.
-The OSM object index was published to R2 on 2026-09-12 (54 shards, 211,881
-objects, 28.6 MB) and the deployed site now selects objects across all 58
-tiles. What remains of the object panel is the series behind its chart.
+handset on 2026-09-11.
+
+**Spec section 7 - the OSM object panel - completed 2026-09-12** and is live:
+the object index is published to R2 (54 shards, 211,881 objects), selection
+covers all 58 tiles, the daily pipeline samples per-object GFSC, and the panel
+draws real snow history over a trailing 30-day window. **Next work is A-to-B
+routing (item 2)**; item 1 is now watching rather than building.
 
 ## Next, in order
 
-1. **OSM object panel: the snow history behind the chart (spec section 7).**
-   Selection, the panel and the chart are done and live against the published
-   R2 index; `docs/research/maptiler-outdoor-objects.md` records why the app
-   carries its own index rather than reading the basemap's features. What is
-   missing is the data the chart draws:
-   - **Precompute the per-object GFSC time series**, keyed on the same stable
-     OSM ids, by batch-sampling the rasters the daily pipeline already
-     downloads and backfilling from Copernicus's multi-year archive. No new
-     running server. **The foundation shipped 2026-09-12** - the permanent
-     slot map (`object_slots.py`), the cell format and offset arithmetic
-     (`object_series.py`), and the daily sampling wired into `build_preview`
-     behind optional flags that default to off. **What remains is the backfill
-     itself**: the `workflow_dispatch` matrix described below, and publishing
-     `series/` to R2. Shape, from measurements taken 2026-09-11:
-     - The daily increment is **done and switched on** (2026-09-12). The
-       render job fetches the published index and slot maps over plain HTTPS
-       and samples during the existing render; the publish job uploads
-       `series/` and the updated slot maps from the one step that already
-       holds secrets. **It has not yet run** - the next scheduled run is
-       04:35 UTC, or dispatch `publish-latest-preview.yml` manually to see it
-       sooner. First run builds every tile's slot map, since none exist yet.
-       The pixel index comes from the product's own affine transform, never
-       `footprint.parse_mgrs_tile`.
-     - **The remaining work is the backfill.** Two chunks (amendment v1.13's
-       depth), then set `VITE_OBJECT_SERIES_URL` and the chart stops saying
-       "Not available yet". **Backfill chunk = one calendar month, all
-       tiles**, as a separate `workflow_dispatch` matrix: ~1,740 tile-dates and ~2.3 GB per chunk,
-       far inside a 6-hour job, and at most 31 product dates per tile so
-       `select_window_products` is reused unchanged. 12 chunks per year of
-       history; the Free plan allows 20 concurrent jobs and 256 matrix jobs
-       per run, and Actions is unmetered on a public repo. Resume by HEADing
-       each month shard's public R2 URL, so a failed chunk costs one chunk
-       and no state lives between runs. Sampling needs the raster stack, so
-       chunks hand artifacts to a publish job exactly as the daily workflow
-       does - the publisher stays boto3-only.
-     - **Artifact `series/<TILE>/<YYYY-MM>.bin`**: object-major, fixed 2-byte
-       cell (GF byte, then GF-QA in 2 bits and AT age in 4 - real ages were
-       0-6 days and spec 7.1 caps validity at 14), one column per calendar
-       day. One object's month is then a 62-byte HTTP Range read, so the
-       frontend needs no per-object objects in R2; ~155 MB per year of
-       history for all 211,855 objects. Row order must be a permanent
-       per-tile slot map published beside the index, not the index shard's
-       order, or the next OSM refresh invalidates every offset. **Decided
-       2026-09-12: a range read past the end of an older month file is
-       no-data, not an error** - offsets depend only on an object's own slot
-       and slots are append-only, so a slot allocated later is necessarily
-       past an older month's length, which means the object was not in the OSM
-       extract yet. Old month files are therefore never rewritten when the
-       slot map grows, and the frontend must read a 416 as a gap. This is the
-       one thing the decided format had left open.
-     - **Depth: two calendar months.** Spec amendment v1.13 (2026-09-12) cut
-       the chart to a single trailing 30-day window, so the two-years figure
-       this line used to carry - which existed only to satisfy the
-       previous-year comparison - goes with it. Two months is what makes a
-       full 30-day window available on the first day whatever the date; after
-       that the daily increment keeps it filled by itself. That is **2
-       backfill chunks rather than 24**, and roughly **26 MB of series in R2
-       rather than ~310 MB**. Going deeper is now a product choice with no
-       requirement behind it; HR-WSI still reaches back to September 2016
-       (~1.3 MB per tile-date) if that changes.
-     - **Both assumptions this design rested on were checked on 2026-09-12
-       and hold** - see `worklog.md`. Runner throughput: the daily job already
-       does this workload (a 31-day window over 58 tiles is ~1,798 tile-dates
-       against a chunk's ~1,740) and eight real runs took 11.8-20.75 min
-       against a 6-hour budget, so the margin is ~17-30x. Browser Range reads:
-       a 62-byte ranged GET from the production origin already returns `206`
-       with the right bytes and CORS origin; `ExposeHeaders: ["ETag"]` does not
-       bite, because the `206` status and `Content-Length` are readable from JS
-       regardless. Nothing in the design needs to change.
-     - Not worth doing, each measured and rejected: HTTP range reads inside
-       the source products (they *are* COGs, but 1024 px blocks over 1830 px
-       is four blocks and a layer is only ~200 KB, so a whole-file GET wins);
-       deduplicating co-located objects (208,993 distinct pixels for 211,855
-       objects - 1.4%); sampling every granule covering an object instead of
-       its home shard's (+26% points sampled for +0.3 pp of valid marks).
-   - The chart itself (spec section 7.1) **shipped 2026-09-12**, including the
-     honest gap treatment, and renders "Not available yet" until
-     `VITE_OBJECT_SERIES_URL` is set - which waits on the backfill publishing
-     `series/` and `slots/`. It shows **one trailing 30-day window and no
-     picker**, per spec amendment v1.13 the same day; the presets, custom
-     range and previous-year comparison it briefly had are gone.
+1. **OSM object panel - spec section 7 is complete, and now needs watching
+   rather than building.** Selection, the panel, the chart, the published
+   index, the daily sampling and the historical backfill all shipped
+   2026-09-12; the chart draws real per-object GFSC history on the deployed
+   site. What is left is operational, not construction:
+   - **Watch the next few daily runs.** The first run created every tile's
+     permanent slot map; subsequent runs exercise the *extend* path, which has
+     never run. The invariant to watch is that slot counts only ever grow and
+     that `series/<TILE>/<YYYY-MM>.bin` length stays `slots x days x 2`.
+   - **The backfill exists but is probably not needed.** The daily job samples
+     its whole 31-day window every run, so the first run alone populated 13
+     Aug - 11 Sept, and a trailing 30-day window is continuously covered
+     without any backfill at all. `backfill-object-series.yml` is there for
+     history *deeper* than 30 days, which since amendment v1.13 nothing
+     requires. Run it only if that depth is wanted for its own sake; it merges
+     rather than overwrites, so running it is safe but not free.
    - One open contract question from the first consumer: whether
      `bytes`/`sha256` stay in the shard index (the frontend does verify them).
-     The hut/shelter duplicate question is closed - the pipeline drops a
-     shelter that duplicates a same-named hut beside it, see `worklog.md`
-     (2026-09-11).
    - Anything needing to know where Nevaio shows snow must ask
      `nevaio_pipeline.footprint`, not re-derive it.
 

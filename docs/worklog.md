@@ -1,5 +1,80 @@
 # Working session log
 
+## 2026-09-12 - Spec section 7 is complete; the backfill merges instead of skipping
+
+The object panel now draws real per-object snow history on the deployed site.
+That closes plan item 1, which opened this session as "publish the index, then
+the snow history".
+
+**The backfill's skip-if-exists policy was a no-op bug, and it is fixed.** The
+first design skipped any month file that already existed, reasoning that
+overwriting risked truncating a file the daily job had grown. The reasoning
+about truncation was right; the conclusion was not. The daily job's own 31-day
+window routinely publishes a *partially filled* month, so skip-if-exists made
+the backfill permanently useless for exactly the months it exists to complete.
+Measured against the live bucket rather than argued: `series/32TLR/2026-08.bin`
+existed but carried marks only on 13-31 August, so a backfill of that month
+would have skipped and left 1-12 August empty for good.
+
+It now merges: a cell is filled only where the existing byte is a gap and the
+sampled byte is not, so a real observation is never replaced and a re-run is a
+no-op. The array is sized to `max(existing, current)` slots, with `existing`
+read from the file's own byte length rather than assumed, so a file the daily
+job grew after this run fetched its slot map keeps its tail. That addresses
+the original truncation concern head-on instead of avoiding it. Verified
+against the real published August file: days 1-12 fill, days 13-31 stay
+byte-identical, size unchanged, re-run idempotent, longer tail preserved.
+
+*Slot-map safety is structural, not procedural.* The backfill module imports
+none of `write_slot_map`, `extend_slot_map` or `build_slot_map` and calls none
+of them, so a rebuild is impossible rather than merely avoided. A 404 on a slot
+map **fails the job** - the inverse of the daily workflow's rule, and correct
+for this context: every shard-bearing tile already has a slot map, so a 404
+means something is wrong, not that this is a first run.
+
+**The backfill is probably not needed at all, and the plan now says so.** The
+daily job samples its whole 31-day window every run, so the first run alone
+populated 13 Aug - 11 Sept, and a trailing 30-day window is continuously
+covered with no backfill whatsoever. It exists for history deeper than 30 days,
+which since amendment v1.13 nothing requires. Worth writing down rather than
+leaving as a task someone later feels obliged to run.
+
+**Three integration defects that only wiring could find**, all from lighting up
+the chart against real data:
+- The client resolved `<base>/slots/<TILE>.json` while the publisher writes
+  slot maps under `object-index/` and month files at the bucket root, so no
+  single base satisfied both and every slot lookup would have 404'd.
+- The panel published its own height once, synchronously, while the history
+  still said "Loading history..."; the real chart then grew it past that stale
+  value and covered the snow control at 320px. Now a `ResizeObserver`.
+- `check-mobile-layout` measured 400ms after the panel opened - before a slot
+  map and ranged read return from R2 - so it had been asserting on a shorter
+  panel than any user sees, which is how the overlap above reached me green. It
+  now waits for the panel to settle.
+
+**UI pass.** Object panel translucency, a compressed fact line, the OSM id
+dropped from display, "N/A" for an unavailable series, a smaller info button,
+and the AS-OF `<select>` replaced by a stepped slider. Then a second round: the
+date change now cross-fades instead of blanking the map for the length of the
+manifest fetch, and the chart legend is horizontal with the standing hint text
+gone.
+
+*The cross-fade reverses a deliberate ordering, so the reason it is still safe
+is recorded in the code rather than just here:* the old raster stays up while
+the new manifest loads, and that is only honest because the date display is in
+its loading state for the whole window, so an old raster is never paired with a
+new date's label. If the label ever updates before the fade completes, the
+ordering has to go back.
+
+*A correction worth recording plainly.* The legend had been rendering vertical
+since the v1.13 CSS cleanup, and that was my own regex bug: the pattern matched
+`prior-year` as the *second* class of the compound selector
+`.object-history__gap.object-history__prior-year`, removed that rule's body,
+and left the orphaned `.object-history__gap` fused onto the next selector,
+silently disabling the legend's `display: flex`. The owner spotted the symptom.
+Regex edits over CSS need anchoring to the start of a selector; the rule now
+carries a comment saying so.
+
 ## 2026-09-12 - Daily per-object sampling is on, and two silent-corruption bugs
 
 The daily workflow now fetches the published object index and slot maps over
