@@ -212,3 +212,31 @@ bounds plus the forward Web Mercator formula (what the browser effectively does)
 - The colour ramp used here (steel-blue -> white, alpha 0.10 -> 0.88, grey cloud,
   transparent water/nodata) is a placeholder chosen to make the overlay readable, not a
   proposal. It lives in one LUT in `make_overlay.py`.
+
+## 2026-09-13 - how much of a GFSC series is actually a fresh observation
+
+Measured against the published per-object series, tile 32TPS, 1-11 September
+2026, 6,645 objects, 63,631 valid marks.
+
+- **Only 18% of valid marks are same-day observations (AT age 0). 82% are the
+  product's own gap-fill** - an earlier observation re-reported on a later day,
+  with the age carried in the AT layer. Age distribution: 0d 18%, 1d 17%,
+  2d 20%, 3d 15%, 4d 16%, 5d 7%, 6d 6%.
+- **Whole days can carry no new observation at all.** On 6 and 8 September not
+  one of the 6,645 objects had an age-0 mark; every value those days was a
+  re-report. By contrast 4 September was near-total clear sky - 6,632 of 6,633
+  valid marks were age 0.
+- So a day-by-day chart of a GFSC series is **not** a series of daily
+  measurements, and a run of identical values is usually one observation, not
+  a stable condition. Ortler on 4-9 September: 39% at ages 0,1,2,3,4,5 - a
+  single reading drawn six times.
+- This is the product behaving as documented (gap-filled by design, spec 7.1
+  explicitly permits it) and is not a pipeline defect. It is a *presentation*
+  hazard: without the age, stale and fresh look identical. The chart now draws
+  carried-forward marks hollow for that reason.
+- **A plausible-looking 100 -> 0 -> 100 swing over days can be entirely real.**
+  Monte Cevedale (3769 m, glaciated) flips between age-0 observations on 3, 4
+  and 9 September. Bare glacier ice scores 0% snow, so a thin melt-out between
+  snowfalls produces exactly this. Thin cloud misread as snow is the competing
+  explanation for the 100s; QA tier was 0 (highest) throughout, so QA alone
+  does not separate them. Do not assume a spiky high-altitude series is a bug.

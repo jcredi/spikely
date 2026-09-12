@@ -86,6 +86,9 @@ function buildLegend(): HTMLElement {
   const legend = el("ul", "object-history__legend");
   const entries: { swatch: string; label: string }[] = [
     { swatch: "valid", label: "Observed" },
+    // Not a gap state - a real value, re-reported from an earlier day by the
+    // product's own gap-filling. It is the majority of a typical chart.
+    { swatch: "carried", label: "Carried forward" },
     { swatch: "cloud", label: GAP_LABELS.cloud },
     { swatch: "no_data", label: GAP_LABELS.no_data },
     { swatch: "stale", label: GAP_LABELS.stale },
@@ -278,11 +281,22 @@ export class ObjectHistorySection {
     }
 
     for (const point of layout.points) {
+      // A GFSC product gap-fills: on a day with no new observation it
+      // re-reports an older one, carrying its age in the AT layer. Measured
+      // 2026-09-12 on tile 32TPS, 1-11 September: only 18% of marks were
+      // age 0, and two of those eleven days carried no fresh observation at
+      // all. Drawing a five-day-old re-report exactly like a same-day reading
+      // overstates how much of this chart is measurement, which is the same
+      // failure spec 7.1 forbids for gaps, one level up. Hollow means
+      // carried forward.
+      const carriedForward = point.ageDays !== null && point.ageDays > 0;
       const circle = svgEl("circle", {
         cx: point.x,
         cy: point.y,
-        r: 2.75,
-        class: `object-history__point ${cssClass}`,
+        r: carriedForward ? 2.5 : 2.75,
+        class:
+          `object-history__point ${cssClass}` +
+          (carriedForward ? " object-history__point--carried" : ""),
         tabindex: "0",
         role: "img",
       });

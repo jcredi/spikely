@@ -25,8 +25,12 @@
      transparent token rather than a change to --panel-bg, so the rest of the
      frosted-glass UI is untouched; a stronger blur+saturate keeps text
      contrast as the map shows through more. */
-  --object-panel-bg: rgba(255, 255, 255, 0.66);
-  --object-panel-border: rgba(255, 255, 255, 0.5);
+  /* Raised from 0.66 on 2026-09-12: over a snow overlay the chart's own blue
+     line competed with the blue raster showing through, which is the one
+     place legibility actually matters here. Still translucent enough to read
+     as a layer above the map. */
+  --object-panel-bg: rgba(255, 255, 255, 0.88);
+  --object-panel-border: rgba(255, 255, 255, 0.6);
   --object-panel-blur: 28px;
 }
 
@@ -755,9 +759,7 @@ body {
   outline-offset: 1px;
 }
 
-/* The previous-year comparison line/points: same shape, visibly muted rather
-   than a second saturated color, so the current period always reads first. */
-.object-history__line.object-history__point/* Gap ticks: a small mark below the plot area, never inside it - a gap must
+/* Gap ticks: a small mark below the plot area, never inside it - a gap must
    never be visually confusable with a zero-value reading. Each state gets its
    own color so "why is there a hole here" never depends on remembering one
    color for "not a measurement". */
@@ -788,6 +790,21 @@ body {
   align-items: center;
   gap: 0.375rem 0.75rem;
   margin-top: 0.5rem;
+}
+
+/* Carried forward, not freshly observed: same value, same line, hollow mark.
+   See the comment in historyChart.ts - most marks on a typical chart are
+   these, and drawing them identically to same-day readings overstated how
+   much of the chart is measurement. */
+.object-history__point--carried.object-history__current-year {
+  fill: #fff;
+  stroke: var(--accent-strong);
+  stroke-width: 1.5;
+}
+
+.object-history__swatch--carried {
+  background: var(--surface, #fff);
+  border: 1.5px solid #38bdf8;
 }
 
 .object-history__legend-item {
