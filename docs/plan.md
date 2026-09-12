@@ -155,32 +155,37 @@ anyone gets enthusiastic about it.
   gap-fill, so any detector must compare like with like or it will flag every
   carried-forward run as an anomaly.
 
-- **Estimating snow depth.** Attractive, and the part that looks hard is not
-  the part that is hard. Honest assessment:
-  - GFSC measures fractional *area* covered, not depth. There is no sound
-    conversion: 100% cover is 5 cm or 5 m. Any depth figure would come from a
-    model driven by other inputs, with GFSC only constraining where snow is.
-  - Errors would be largest exactly where the decisions are - wind-loaded lee
-    slopes, gullies, cornices - because depth varies over metres in terrain
-    that a model at any tractable resolution cannot see.
-  - It is avalanche-adjacent. This app already refuses to show a months-old
-    raster because it could be read as current (spec section 5.4); a modelled
-    depth carries the same hazard with a wider blast radius, since a number
-    reads as more authoritative than an image. Authoritative regional
-    avalanche bulletins exist and a hobby estimate sitting beside them is
-    worse than no estimate.
-  - **The better version of this idea, and the one worth trying first: show
-    measured depth, don't model it.** Public alpine station networks publish
-    real snow-depth readings - SLF/IMIS in Switzerland, the regional
-    Lawinenwarndienste in Austria, AINEVA/Meteomont in Italy. Surfacing the
-    nearest stations' *actual* measurements, with their distance and elevation
-    difference stated plainly, gives a mountaineer something real to reason
-    from and invents nothing. It also fits the existing architecture: another
-    static periodic fetch published to R2, no new running server.
-  - If modelling is ever attempted anyway, the honest form is a range wide
-    enough to be uncomfortable, labelled an estimate, never a single number -
-    and it should be checked against held-out station data before it ships,
-    not after.
+- **Nearest measured snow depth, with distance and elevation delta - a
+  nice-to-have for a future version.** Owner's decision, 2026-09-13: this is
+  the shape worth building if snow depth is ever added. Public alpine station
+  networks publish real snow-depth readings - SLF/IMIS in Switzerland, the
+  regional Lawinenwarndienste in Austria, AINEVA/Meteomont in Italy. Surface
+  the nearest stations' *actual* measurements beside a selected object, stating
+  plainly how far away each is and how much higher or lower, and let the
+  mountaineer do the extrapolating. It invents nothing, and it fits the
+  existing architecture: another periodic static fetch published to R2, no new
+  running server, no backend. Unscheduled, and behind spec section 8 routing in
+  any case.
+  Worth checking before building: each network's licence and whether it permits
+  redistribution (they differ, and some are more restrictive than Copernicus);
+  update cadence; and whether station metadata carries a usable elevation, since
+  the elevation delta is most of the value.
+
+- **Rejected, and worth not re-litigating: modelling or estimating snow depth
+  ourselves.** Considered 2026-09-13 and turned down on the merits, not for
+  effort. GFSC measures fractional *area*, not depth, and there is no sound
+  conversion - 100% cover is 5 cm or 5 m - so any figure would come from a
+  model in which GFSC only constrains where snow is. Errors would be largest
+  exactly where the decisions are made: wind-loaded lee slopes, gullies and
+  cornices, where depth varies over metres in terrain no tractable resolution
+  can see. And it is avalanche-adjacent: this app already refuses to show a
+  months-old raster because it could be read as current (spec section 5.4),
+  and a modelled depth carries the same hazard with a wider blast radius,
+  because a number reads as more authoritative than an image. Authoritative
+  regional avalanche bulletins exist; a hobby estimate sitting beside them is
+  worse than no estimate. If it is ever attempted anyway, the honest form is a
+  range wide enough to be uncomfortable, labelled an estimate, never a single
+  number, and validated against held-out station data before it ships.
 
 ## Explicitly not doing yet
 
