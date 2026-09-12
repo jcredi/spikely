@@ -777,11 +777,16 @@ body {
   fill: var(--text-warning);
 }
 
-.object-history__gap.object-history__legend {
+/* Horizontal, and it must stay that way: this rule lost its own selector once
+   (a regex cleanup fused the orphaned `.object-history__gap` prefix onto it
+   after deleting the compound rule above), which silently turned the legend
+   into a vertical list because `display: flex` no longer matched anything. */
+.object-history__legend {
   list-style: none;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.625rem;
+  flex-flow: row wrap;
+  align-items: center;
+  gap: 0.375rem 0.75rem;
   margin-top: 0.5rem;
 }
 

@@ -151,11 +151,10 @@ export class ObjectHistorySection {
 
     this.chartHost = el("div", "object-history__chart");
     this.statusEl = el("p", "object-history__status", "Loading history…");
-    this.detailEl = el(
-      "p",
-      "object-history__detail",
-      "Tap or focus a point on the chart for its details.",
-    );
+    // No standing hint text: the interaction is discoverable enough and the
+    // line cost more vertical space than it earned on a phone. This fills in
+    // only once a point is actually selected.
+    this.detailEl = el("p", "object-history__detail");
 
     this.element.append(
       this.chartHost,
