@@ -1,0 +1,342 @@
+name: Backfill per-object GFSC series
+
+# Historical backfill for series/<TILE>/<YYYY-MM>.bin (docs/plan.md item 1).
+# workflow_dispatch only, like publish-osm-object-index.yml: a backfill is an
+# owner-initiated, occasional action, never a schedule - a cron here would
+# redo the same months forever. One matrix job per requested calendar month
+# ("Backfill chunk = one calendar month, all tiles"), each handing its output
+# to its own boto3-only publish job over the same production-r2 environment
+# publish-latest-preview.yml and publish-osm-object-index.yml already use, so
+# it is held to the same trust boundary - see
+# pipeline/tests/test_workflow_security.py's BackfillObjectSeriesWorkflowSecurityTests.
+#
+# Depth is a product choice, not something this workflow hardcodes: amendment
+# v1.13 (2026-09-12) needs only the two trailing calendar months, so the owner
+# dispatches with `months: "2026-08 2026-09"`. Going deeper later is just
+# dispatching again with more months - nothing here assumes a short backfill,
+# see pipeline/src/nevaio_pipeline/backfill_object_series.py.
+on:
+  workflow_dispatch:
+    inputs:
+      months:
+        description: "Space-separated calendar months to backfill, YYYY-MM (e.g. '2026-08 2026-09')"
+        required: true
+        type: string
+      tiles:
+        description: "Optional space-separated MVP MGRS tiles; blank uses the full area"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# Deliberately not pip-installed - see the identical comment in the other two
+# workflows: the publish job's whole point is to hold one dependency (boto3)
+# and nothing else, and installing the package would need a build backend
+# inside it.
+env:
+  PYTHONPATH: pipeline/src
+
+concurrency:
+  group: backfill-object-series
+  cancel-in-progress: false
+
+jobs:
+  # Turns the untrusted, attacker-controlled `months` dispatch input into a
+  # matrix without ever letting it reach a shell unquoted - the same rule
+  # publish-osm-object-index.yml applies to `osm_extract_urls`. Validates the
+  # shape (YYYY-MM) before it can become a matrix job's identity.
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    name: Parse requested months into a matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      months: ${{ steps.months.outputs.matrix }}
+    steps:
+      - name: Parse and validate the months input
+        id: months
+        env:
+          MONTHS: ${{ inputs.months }}
+        run: |
+          python3 - <<'PY' >> "${GITHUB_OUTPUT}"
+          import json, os, re
+          months = os.environ["MONTHS"].split()
+          if not months:
+              raise SystemExit("months input must name at least one YYYY-MM month")
+          pattern = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
+          bad = [m for m in months if not pattern.match(m)]
+          if bad:
+              raise SystemExit(f"not a YYYY-MM month: {', '.join(bad)}")
+          print("matrix=" + json.dumps(sorted(set(months))))
+          PY
+
+  render:
+    needs: prepare
+    if: github.ref == 'refs/heads/main'
+    name: Sample one month without publication credentials
+    strategy:
+      fail-fast: false
+      matrix:
+        month: ${{ fromJson(needs.prepare.outputs.months) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Check out trusted source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Install locked render dependencies
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r pipeline/requirements.txt
+      - name: Run pipeline and isolation tests
+        run: python -m unittest discover -s pipeline/tests -t pipeline
+      - name: Resolve tiles to attempt this month, fetching what already exists to merge into
+        # Three things happen here, all before any secret is in scope. This
+        # step no longer decides "skip a tile because its month already
+        # exists" - see nevaio_pipeline.backfill_object_series's module
+        # docstring on why that made a backfill a no-op for exactly the
+        # months it was needed for (the daily job's own AS-OF window only
+        # ever reaches back 31 days, so it routinely publishes a month file
+        # that is only partially filled). The decided fix is a cell-level
+        # merge done in Python, so this step's job is just to fetch every
+        # input that merge needs, or prove a tile cannot be safely attempted
+        # this run:
+        #   1. Fetch each tile's object index shard - absent (a tile with no
+        #      objects, 4 of the MVP's 58) is a harmless skip, exactly like
+        #      the daily workflow.
+        #   2. Fetch each remaining tile's slot map. THIS BACKFILL MUST NEVER
+        #      CREATE ONE (nevaio_pipeline.object_slots; docs/worklog.md
+        #      2026-09-12): only a literal 404 counts as proven absence, and
+        #      because every tile with a published shard already has a
+        #      published slot map (the daily job creates it), a proven-absent
+        #      slot map during backfill is not "first run" - it means
+        #      something is wrong, so this step fails the job rather than
+        #      building one. Any other outcome (timeout, 5xx, connection
+        #      failure) cannot prove absence-vs-unreadable, so that tile is
+        #      skipped for this run - safe, and cheaply retried next time.
+        #   3. Fetch each remaining tile's already-published
+        #      series/<TILE>/<MONTH>.bin, if any, into the same directory the
+        #      sampler will write its merged result back to - mirroring how
+        #      the daily job's own _update_object_series treats a locally
+        #      present month file. A 404 means genuinely nothing published yet
+        #      (fine - the merge below treats that as an empty starting
+        #      point); any other outcome cannot prove absence-vs-unreadable,
+        #      so - same discipline as the slot map - that tile is skipped for
+        #      this run rather than risking a merge against a file we could
+        #      not actually read.
+        # Deliberately curl throughout, never urllib.request: Cloudflare's
+        # r2.dev endpoint answers 403 to Python's default User-Agent while
+        # serving the identical URL to curl (measured 2026-09-12 on the daily
+        # workflow's own first run).
+        env:
+          R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
+          MONTH: ${{ matrix.month }}
+          REQUESTED_TILES: ${{ inputs.tiles }}
+        run: |
+          index_dir="${RUNNER_TEMP}/gfsc-backfill/index-fetch"
+          series_dir="${RUNNER_TEMP}/gfsc-backfill/series"
+          mkdir -p "${index_dir}/objects" "${index_dir}/slots" "${series_dir}"
+          base="${R2_PUBLIC_BASE_URL%/}/object-index"
+          series_base="${R2_PUBLIC_BASE_URL%/}/series"
+
+          curl --fail --silent --show-error --retry 3 --max-time 60 \
+            --output "${index_dir}/object-index.json" "${base}/object-index.json"
+
+          if [[ -n "${REQUESTED_TILES}" ]]; then
+            tiles_list="${REQUESTED_TILES}"
+          else
+            tiles_list="$(python3 -c '
+          import json, sys
+          with open(sys.argv[1]) as f:
+              index = json.load(f)
+          print(" ".join(shard["tile"] for shard in index.get("shards", [])))
+          ' "${index_dir}/object-index.json")"
+          fi
+
+          todo_tiles=""
+          for tile in ${tiles_list}; do
+            if ! curl --fail --silent --show-error --retry 3 --max-time 60 \
+                 --output "${index_dir}/objects/${tile}.json" "${base}/objects/${tile}.json"; then
+              echo "shard fetch failed for ${tile} (likely a tile with no objects); skipping" >&2
+              rm -f "${index_dir}/objects/${tile}.json"
+              continue
+            fi
+
+            # See this step's own comment: no --fail here, the status code
+            # itself decides absence vs unreadable, and `|| true` survives
+            # `bash -e` on a connection-level failure without concatenating a
+            # second code onto --write-out's own "000".
+            slot_code="$(curl --silent --show-error --retry 3 --max-time 60 \
+              --write-out '%{http_code}' \
+              --output "${index_dir}/slots/${tile}.json" "${base}/slots/${tile}.json" || true)"
+            case "${slot_code}" in
+              200)
+                ;;
+              404)
+                echo "slot map for ${tile} is missing (404). Every tile with a published" >&2
+                echo "shard already has a published slot map - a genuine 404 during backfill" >&2
+                echo "means something is wrong, not 'first run'. Failing rather than building one." >&2
+                exit 1
+                ;;
+              *)
+                echo "slot map fetch for ${tile} returned ${slot_code}; cannot prove absence-vs-unreadable, skipping this tile this run" >&2
+                rm -f "${index_dir}/slots/${tile}.json" "${index_dir}/objects/${tile}.json"
+                continue
+                ;;
+            esac
+
+            mkdir -p "${series_dir}/${tile}"
+            month_code="$(curl --silent --show-error --retry 3 --max-time 60 \
+              --write-out '%{http_code}' \
+              --output "${series_dir}/${tile}/${MONTH}.bin" "${series_base}/${tile}/${MONTH}.bin" || true)"
+            case "${month_code}" in
+              200)
+                ;;  # already-published month - the sampler merges into it
+              404)
+                rm -f "${series_dir}/${tile}/${MONTH}.bin"  # nothing published yet for this tile-month
+                ;;
+              *)
+                echo "existing month fetch for ${tile}/${MONTH} returned ${month_code}; cannot prove absence-vs-unreadable, skipping this tile this run" >&2
+                rm -f "${series_dir}/${tile}/${MONTH}.bin" "${index_dir}/slots/${tile}.json" "${index_dir}/objects/${tile}.json"
+                continue
+                ;;
+            esac
+
+            todo_tiles="${todo_tiles} ${tile}"
+          done
+          echo "BACKFILL_TILES=${todo_tiles}" >> "${GITHUB_ENV}"
+      - name: Sample this month's series
+        # backfill_object_series.py decides per tile, cheaply, whether there
+        # is anything left to do (see its module docstring on
+        # "already-complete") - this step always invokes it for every
+        # resolved tile rather than pre-filtering, since only the sampler
+        # itself can tell a partially-published month from a complete one.
+        env:
+          MONTH: ${{ matrix.month }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/gfsc-backfill/series" "${RUNNER_TEMP}/gfsc-backfill/raw"
+          if [[ -z "${BACKFILL_TILES// }" ]]; then
+            echo "Nothing to attempt for ${MONTH}: every tile was skipped upstream." >&2
+          else
+            python -m nevaio_pipeline.backfill_object_series \
+              --month "${MONTH}" \
+              --tiles ${BACKFILL_TILES} \
+              --raw-dir "${RUNNER_TEMP}/gfsc-backfill/raw" \
+              --object-index-dir "${RUNNER_TEMP}/gfsc-backfill/index-fetch" \
+              --series-output-dir "${RUNNER_TEMP}/gfsc-backfill/series" \
+              --receipt "${RUNNER_TEMP}/gfsc-backfill/sample-receipt.json"
+          fi
+      - name: Transfer this month's series data
+        # Best-effort: this normally carries a mix of merged (changed) and
+        # already-complete (untouched, re-uploaded as-is) month files; it is
+        # empty only when every tile was skipped upstream before any fetch,
+        # which is a normal outcome, not a failure - see
+        # if-no-files-found: ignore, matching the daily workflow's own
+        # object-series artifact.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gfsc-backfill-series-${{ matrix.month }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gfsc-backfill/series/
+          if-no-files-found: ignore
+          retention-days: 1
+          compression-level: 0
+          include-hidden-files: false
+
+  publish:
+    needs: [prepare, render]
+    if: github.ref == 'refs/heads/main'
+    name: Validate and publish one month on a fresh runner
+    strategy:
+      fail-fast: false
+      matrix:
+        month: ${{ fromJson(needs.prepare.outputs.months) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: production-r2
+    steps:
+      - name: Check out trusted source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Install locked minimal publisher dependencies
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r pipeline/requirements-publish.txt
+      - name: Download this month's series data
+        # May not exist at all - see the render job's own upload step. Not a
+        # failure of this workflow: publish_object_series treats an absent
+        # directory as zero files to publish.
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: gfsc-backfill-series-${{ matrix.month }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/object-series
+      - name: Validate untrusted artifact without secrets
+        # No --slots-dir input: this backfill never produces slot maps (see
+        # pipeline/src/nevaio_pipeline/backfill_object_series.py) - pointing
+        # at a directory that does not exist is exactly how
+        # validate_object_series_dirs is meant to be called for zero slot
+        # files, the same as an ordinary daily run where nothing changed.
+        run: |
+          python -m nevaio_pipeline.publish_object_series \
+            --series-dir "${RUNNER_TEMP}/object-series" \
+            --slots-dir "${RUNNER_TEMP}/no-slots-this-chunk" \
+            --check-only
+      - name: Publish validated series
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          python -m nevaio_pipeline.publish_object_series \
+            --series-dir "${RUNNER_TEMP}/object-series" \
+            --slots-dir "${RUNNER_TEMP}/no-slots-this-chunk" \
+            --receipt "${RUNNER_TEMP}/backfill-series-receipt.json"
+      # Reads only public URLs and this job's own receipt; no credentials, no
+      # new dependency - the same shape every other verification step here
+      # uses. Deliberately curl, never urllib.request: Cloudflare's r2.dev
+      # endpoint answers 403 to Python's default User-Agent while serving the
+      # identical URL to curl (measured 2026-09-12 on the daily workflow's own
+      # first run) - do not "fix" a recurrence by spoofing a User-Agent.
+      - name: Verify per-tile series publication
+        env:
+          R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
+          MONTH: ${{ matrix.month }}
+        run: |
+          python3 - <<'PY' > "${RUNNER_TEMP}/backfill-tiles.txt"
+          import json, os
+          from pathlib import Path
+          receipt = json.loads((Path(os.environ["RUNNER_TEMP"]) / "backfill-series-receipt.json").read_text())
+          if receipt["seriesFilesPublished"]:
+              print("\n".join(receipt["tiles"]))
+          PY
+          if [[ ! -s "${RUNNER_TEMP}/backfill-tiles.txt" ]]; then
+            echo "Nothing to verify for ${MONTH}: no tiles were sampled this run."
+            exit 0
+          fi
+          verified=0
+          while IFS= read -r tile; do
+            [[ -z "${tile}" ]] && continue
+            curl --fail --silent --show-error --retry 5 --max-time 60 \
+              --output "${RUNNER_TEMP}/published-${tile}-${MONTH}.bin" \
+              "${R2_PUBLIC_BASE_URL%/}/series/${tile}/${MONTH}.bin"
+            verified=$((verified + 1))
+          done < "${RUNNER_TEMP}/backfill-tiles.txt"
+          echo "Verified ${verified} tile month file(s) published for ${MONTH}"
+      - name: Preserve publication metadata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backfill-object-series-metadata-${{ matrix.month }}
+          path: ${{ runner.temp }}/backfill-series-receipt.json
+          if-no-files-found: error
+          retention-days: 7

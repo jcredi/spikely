@@ -198,5 +198,195 @@ class ObjectIndexWorkflowSecurityTests(unittest.TestCase):
         self.assertIn('"${OSM_EXTRACT_URLS}"', download["run"])
 
 
+class BackfillObjectSeriesWorkflowSecurityTests(unittest.TestCase):
+    """The same trust boundary, over the historical per-object series backfill.
+
+    A third workflow reaching `production-r2` is a third way to leak the
+    publication key (docs/agent-guide.md: "Add a third workflow and it gets a
+    class in that file too"). Only the assertions that generalise across the
+    three workflows live here; this workflow's own matrix/resume shape is
+    checked in the tests that follow.
+    """
+
+    def setUp(self):
+        self.workflow = yaml.load(
+            (Path(__file__).resolve().parents[2] / ".github/workflows/backfill-object-series.yml").read_text(),
+            Loader=yaml.BaseLoader,
+        )
+
+    def test_secrets_exist_only_on_the_publishing_step(self):
+        workflow = self.workflow
+        self.assertNotIn("secrets.", str(workflow.get("env", {})))
+        exposures = []
+        for name, job in workflow["jobs"].items():
+            self.assertNotIn("secrets.", str(job.get("env", {})))
+            for step in job["steps"]:
+                if "secrets." in str(step):
+                    exposures.append((name, step["name"]))
+                    self.assertEqual(set(k for k, v in step["env"].items() if "secrets." in v),
+                                     {"R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"})
+                    self.assertNotIn("pip install", step["run"])
+                    self.assertIn("python -m nevaio_pipeline.publish_object_series", step["run"])
+        self.assertEqual(exposures, [("publish", "Publish validated series")])
+
+    def test_fresh_hosted_jobs_protected_ref_and_environment(self):
+        jobs = self.workflow["jobs"]
+        self.assertEqual(self.workflow["permissions"], {"contents": "read"})
+        # Manual only, like the object index workflow: a backfill is an
+        # occasional, owner-initiated action - a schedule would redo the same
+        # months forever.
+        self.assertEqual(set(self.workflow["on"]), {"workflow_dispatch"})
+        self.assertEqual(jobs["render"]["needs"], "prepare")
+        self.assertEqual(jobs["publish"]["needs"], ["prepare", "render"])
+        self.assertEqual(jobs["publish"]["environment"], "production-r2")
+        self.assertNotIn("environment", jobs["prepare"])
+        self.assertNotIn("environment", jobs["render"])
+        for job in jobs.values():
+            self.assertEqual(job["runs-on"], "ubuntu-24.04")
+            self.assertEqual(job["if"], "github.ref == 'refs/heads/main'")
+
+    def test_actions_are_pinned_and_checkout_does_not_persist_credentials(self):
+        for job in self.workflow["jobs"].values():
+            for step in job["steps"]:
+                if "uses" in step:
+                    self.assertRegex(step["uses"], r"^actions/[a-z-]+@[0-9a-f]{40}$")
+                    if step["uses"].startswith("actions/checkout@"):
+                        self.assertEqual(step["with"]["persist-credentials"], "false")
+                self.assertNotIn("cache", step.get("with", {}))
+                if "pip install" in step.get("run", ""):
+                    self.assertIn("--require-hashes", step["run"])
+                    self.assertIn("--only-binary=:all:", step["run"])
+
+    def test_artifact_is_data_outside_checkout_not_a_script_or_dependency_source(self):
+        render = self.workflow["jobs"]["render"]["steps"]
+        publish = self.workflow["jobs"]["publish"]["steps"]
+        upload = next(s for s in render if s.get("uses", "").startswith("actions/upload-artifact@"))
+        download = next(s for s in publish if s.get("uses", "").startswith("actions/download-artifact@"))
+        # Both names carry the matrix month as well as the run id/attempt, so
+        # a render job's artifact is only ever consumed by the publish job of
+        # the *same* month within the *same* run.
+        self.assertEqual(upload["with"]["name"], download["with"]["name"])
+        self.assertIn("matrix.month", upload["with"]["name"])
+        self.assertIn("github.run_attempt", upload["with"]["name"])
+        self.assertNotIn("github-token", download["with"])
+        self.assertNotIn("run-id", download["with"])
+        installs = [s["run"] for s in publish if "pip install" in s.get("run", "")]
+        self.assertEqual(len(installs), 1)
+        self.assertIn("pipeline/requirements-publish.txt", installs[0])
+        for step in publish:
+            self.assertNotIn("working-directory", step)
+
+    def test_the_untrusted_artifact_is_revalidated_before_any_secret_is_in_scope(self):
+        publish = self.workflow["jobs"]["publish"]["steps"]
+        names = [s["name"] for s in publish]
+        check = next(s for s in publish if "--check-only" in s.get("run", ""))
+        self.assertNotIn("secrets.", str(check))
+        self.assertLess(names.index(check["name"]), names.index("Publish validated series"))
+
+    def test_publication_is_verified_against_public_objects_without_secrets(self):
+        publish = self.workflow["jobs"]["publish"]["steps"]
+        verify = next(s for s in publish if s["name"].startswith("Verify per-tile series"))
+        self.assertNotIn("secrets.", str(verify))
+        self.assertEqual(set(verify["env"]), {"R2_PUBLIC_BASE_URL", "MONTH"})
+
+    def test_the_untrusted_dispatch_inputs_never_reach_a_shell_unquoted(self):
+        """Two attacker-controlled inputs here: `months` and `tiles`.
+
+        Both must arrive as environment variables and stay quoted, the same
+        rule publish-osm-object-index.yml applies to `osm_extract_urls` - a
+        bare `${{ inputs.* }}` inside `run:` is shell injection on a job that
+        hands an artifact to a credentialed job.
+        """
+        for job in self.workflow["jobs"].values():
+            for step in job["steps"]:
+                self.assertNotIn("inputs.", step.get("run", ""))
+        parse = next(s for s in self.workflow["jobs"]["prepare"]["steps"]
+                     if s["name"] == "Parse and validate the months input")
+        self.assertEqual(parse["env"], {"MONTHS": "${{ inputs.months }}"})
+        self.assertIn('os.environ["MONTHS"]', parse["run"])
+
+        resolve = next(s for s in self.workflow["jobs"]["render"]["steps"]
+                       if s["name"].startswith("Resolve tiles to attempt"))
+        self.assertEqual(resolve["env"]["REQUESTED_TILES"], "${{ inputs.tiles }}")
+        self.assertIn('"${REQUESTED_TILES}"', resolve["run"])
+
+    def test_matrix_is_built_from_the_validated_prepare_output_not_the_raw_input(self):
+        jobs = self.workflow["jobs"]
+        for name in ("render", "publish"):
+            matrix = jobs[name]["strategy"]["matrix"]["month"]
+            self.assertEqual(matrix, "${{ fromJson(needs.prepare.outputs.months) }}")
+
+    def test_backfill_never_writes_a_slot_map(self):
+        """The one invariant that matters most (docs/agent-guide.md).
+
+        This workflow's publish step must point --slots-dir at a directory
+        that is never populated by the render job, so it can only ever
+        publish zero slot maps - the render side
+        (backfill_object_series.py) has no code path that writes one at all.
+        """
+        publish = self.workflow["jobs"]["publish"]["steps"]
+        for step in publish:
+            run = step.get("run", "")
+            if "publish_object_series" in run:
+                self.assertIn("--slots-dir", run)
+                self.assertNotIn("index-fetch/slots", run)
+        render = self.workflow["jobs"]["render"]["steps"]
+        for step in render:
+            self.assertNotIn("write_slot_map", step.get("run", ""))
+
+    def test_a_confirmed_404_slot_map_fails_the_job_rather_than_first_run(self):
+        """Backfill's one deliberate divergence from the daily workflow's fetch step.
+
+        The daily workflow treats a 404 as "first run for this tile" and lets
+        load_or_create_slot_map build a fresh map. Backfill must not: every
+        tile with a published shard already has a published slot map, so a
+        confirmed-absent one here means something is wrong, not "first run".
+        """
+        render = self.workflow["jobs"]["render"]["steps"]
+        resolve = next(s for s in render if s["name"].startswith("Resolve tiles to attempt"))
+        self.assertIn("404)", resolve["run"])
+        self.assertIn("exit 1", resolve["run"])
+        self.assertNotIn("load_or_create_slot_map", resolve["run"])
+
+    def test_an_existing_month_file_is_fetched_for_merge_not_used_to_skip_the_tile(self):
+        """The bug the coordinator caught: skip-if-published made backfill a no-op.
+
+        This step must GET the existing series/<TILE>/<MONTH>.bin into the
+        same directory the sampler reads and writes, not merely HEAD it to
+        decide whether to bother - the daily job's own 31-day AS-OF window
+        means a month file it already touched is routinely still partial, and
+        that partial file is exactly what a backfill exists to complete.
+        """
+        render = self.workflow["jobs"]["render"]["steps"]
+        resolve = next(s for s in render if s["name"].startswith("Resolve tiles to attempt"))
+        run = resolve["run"]
+        self.assertIn("series_base", run)
+        self.assertIn('--output "${series_dir}/${tile}/${MONTH}.bin"', run)
+        # The old skip-on-200 shortcut must be gone: every tile that reaches
+        # this point is still handed to the sampler, which decides on its own
+        # (cheaply) whether anything is left to do.
+        self.assertNotIn("skipping (resume)", run)
+        sample = next(s for s in render if s["name"] == "Sample this month's series")
+        self.assertNotIn("already published", sample["run"])
+
+    def test_the_publish_job_never_assumes_an_unpublished_month_and_cannot_truncate(self):
+        """Guards against reintroducing the rejected "just overwrite" design.
+
+        publish_object_series.py's put_object always replaces the key
+        wholesale, so the only thing preventing truncation is that the bytes
+        handed to it were already merged (never shrunk) by
+        backfill_object_series.py before this job ever sees them - this job
+        itself has no size or emptiness check of its own, which is fine only
+        because the render job's own merge is the safeguard. This test at
+        least pins that the publish job still does not read or derive a slot
+        count from anywhere - it only moves bytes the render job already
+        finished merging.
+        """
+        publish = self.workflow["jobs"]["publish"]["steps"]
+        for step in publish:
+            self.assertNotIn("grow_month_array", step.get("run", ""))
+            self.assertNotIn("new_month_array", step.get("run", ""))
+
+
 if __name__ == "__main__":
     unittest.main()
