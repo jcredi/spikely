@@ -186,6 +186,106 @@ for the MVP"). Rejected on the same reasoning the spec already states.
 > for decision B's DEM in Alpine terrain. Decision B is unaffected and in fact
 > reinforced.
 
+### AMENDMENT, 2026-09-13: Mapbox now asks for a credit card, so the decision reopens
+
+**What changed.** The owner went to create the URL-restricted Mapbox token and
+was asked for payment details. That is a new hard constraint, and it is a
+reasonable one for a project whose stated operating-cost target is
+free-where-possible (spec section 15 item 9): handing card details to a vendor
+for a feature budgeted at zero is a different commitment from accepting a free
+tier. **"No payment details at signup" now joins "the key must be safe in a
+browser" as a hard filter applied before any ranking on routing quality** - the
+lesson the 2026-09-12 correction block above says to apply first.
+
+Re-checked against both filters on 2026-09-13. Sources are primary vendor pages
+except where marked.
+
+| Provider | Card at signup | Free allowance | Browser key safe? | Hiking profile | Elevation in the route response | Commercial use on free tier |
+|---|---|---|---|---|---|---|
+| **Geoapify** | **No** ("No credit card required") | 3,000 credits/day | **Yes** - keys restrictable by allowed origins, HTTP referrers, IP and CORS | **Yes**, `hike`: "uses hiking trails and higher difficulty trails" | **Yes**, `details=elevation` | **Allowed**: "The commercial use of the Free-package is allowed in the development and, with some limitations, in the production phase" |
+| Stadia Maps | No | 200,000 credits/month, shared pool | **Yes, and better** - domain auth needs *no key in the page at all* | Valhalla pedestrian; no hike-specific mode confirmed | No (separate call) | **"Commercial use not allowed"**, still with no published definition |
+| GraphHopper | No | 500 credits/day | **No evidence** - no documented domain restriction for customer keys | Yes, `hike` | Yes | **"Free Plan is for non-commercial use only"** |
+| FOSSGIS public Valhalla | No account at all | Fair use, rate-limited | **N/A - keyless** | Valhalla pedestrian | No | Demo server; no commercial terms either way |
+| Mapbox Directions | **Yes** - disqualified | 100k/month | Yes | `walking` only | No | Allowed |
+| OpenRouteService | No | 2,000/day | **No** - staff say server-side only | `foot-hiking` | No | See correction above |
+
+**The finding that matters most is not about routing at all.** Geoapify's
+`details=elevation` returns "an array of heights in meters corresponding to the
+route leg geometry points" plus an array of `[distance, height]` pairs, and
+ascent/descent totals. That is spec section 8.3's elevation gain/loss *and* most
+of section 8.4's elevation profile, from the same request that returns the
+route - which would take the **precomputed Copernicus GLO-30 extract (decision B)
+off routing's critical path entirely**, along with its pipeline job, its R2
+storage claim, and the sizing exercise the plan currently gates the DEM on.
+Decision B does not become wrong; it becomes *not yet necessary*, which is a
+materially better position for a project this size.
+
+Two things about that elevation are **unconfirmed and must be smoke-tested
+before any of it is relied on**: Geoapify does not name its global DEM source
+(the docs claim roughly 30 m worldwide, with 3-10 m only where national data
+like USGS 3DEP exists - irrelevant here), and 30 m global is the same resolution
+class as GLO-30 but not necessarily the same data or the same vertical accuracy
+in steep alpine terrain, which is exactly where DEMs are worst. Check a handful
+of known summit and hut elevations against the object index's own values before
+trusting the profile.
+
+**Cost check.** A hike route costs 1 credit per waypoint pair, and elevation adds
+1 more, so roughly 2 credits per calculated route - about 1,500 routes/day inside
+the free allowance, for an app with no accounts and low traffic. Not a
+constraint.
+
+**What it costs us.** A `Powered by Geoapify` link is mandatory on the free plan
+(paid plans white-label it), alongside the OpenStreetMap attribution the app
+already carries. One new `connect-src` origin, `api.geoapify.com`. And the
+"some limitations in the production phase" wording on free-plan commercial use
+is undefined - low risk for a revenue-free app, worth an email if that ever
+changes.
+
+**Why not Stadia, despite the better auth story.** Domain-based authentication
+with no key in the bundle is strictly better than a restricted key, and it is
+the one thing here that beats Geoapify on the security axis. It loses on
+licensing: "Commercial use not allowed", still undefined, over an app that is a
+public "product or service" - the same broad wording this document already
+flagged on 2026-09-12 as the weakest free-tier fit. Trading a *documented*
+permission for a better key mechanism under an *ambiguous* prohibition is the
+wrong way round. Revisit if Stadia ever defines the term.
+
+**Why not GraphHopper.** Its `hike` profile is the best-fitting of all of them
+and it returns elevation, but no domain restriction for customer API keys could
+be found, and its free plan is explicitly non-commercial. That is the ORS
+failure mode exactly: ranking on routing quality before applying the
+client-side-key filter. Rejected on the filter, not on the merits.
+
+**FOSSGIS's public Valhalla is the zero-account escape hatch, not the pick.** It
+needs no account, no card and no key, which removes this whole class of problem.
+But it is a *demo* server under the same fair-use posture as the OSRM and
+Nominatim demo servers - and Nominatim's usage policy is precisely what
+disqualified the original geocoder (spec amendment v1.9, audit F11). The
+difference worth recording: Valhalla's policy *contemplates* published apps
+rather than prohibiting them, asking only that they be announced via GitHub
+Discussions and send an identifying `X-Client-Id` header. That header is a
+custom one, so it triggers a CORS preflight on every request - check that the
+demo server answers `OPTIONS` before building on it. Keep it as the fallback if
+Geoapify's free plan ever changes.
+
+### RECOMMENDATION (2026-09-13, supersedes the Mapbox decision): Geoapify Routing API, `hike` mode
+
+It is the only candidate that clears both hard filters - no card at signup, and
+a key that the vendor's own documentation says to restrict by origin - while
+also being the only one that answers the elevation question in the same breath.
+The routing profile is purpose-built for trails rather than pavements, the
+licensing permits what this app actually does instead of leaving it to be
+argued, and adopting it removes a pipeline job from the plan rather than adding
+one.
+
+Migration cost from the shipped Mapbox code is small and localised by design:
+`directionsSchema.ts` (a different response shape), `directions.ts` (a different
+URL and parameter set), the token name in `map/config.ts`, and one line in
+`app/public/_headers`. Everything above that boundary - the controller, the
+panel, the map layer, the pure geometry - is provider-agnostic already.
+
+---
+
 ### RECOMMENDATION: OpenRouteService, `foot-hiking` profile
 
 **Reasoning.** It is the only candidate whose routing profile is actually
