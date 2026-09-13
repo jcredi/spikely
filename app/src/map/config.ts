@@ -69,3 +69,26 @@ export const objectSeriesUrl: string | null =
 // the MVP geographic scope - not a hard filter, so exact correctness here
 // doesn't matter.
 export const searchBiasBounds: [number, number, number, number] = [5, 40, 16, 48];
+
+// The hiking routing provider (spec section 8, decided 2026-09-12 - see
+// docs/research/routing-and-dem-options.md and the correction in it that
+// reversed OpenRouteService). Mapbox Directions' `mapbox/walking` profile is
+// called straight from the browser, which is only safe because a Mapbox
+// *public* token can carry URL restrictions; OpenRouteService was disqualified
+// precisely because it cannot.
+//
+// Two rules ride on this value and neither is optional:
+//   - It must be a **new, URL-restricted** token, never the account's default
+//     one. Mapbox does not apply URL restrictions to default tokens, so the
+//     default would ship unrestricted inside a public bundle.
+//   - Like VITE_MAPTILER_API_KEY, it is deliberately **not** marked secret in
+//     Netlify: Vite inlines `VITE_*` into the client bundle by design, so
+//     secret-scanning would fail the build on a value that is meant to reach
+//     the browser. The real access control is Mapbox's own URL restriction.
+//
+// Null when unset, and that is a supported state rather than a broken one: the
+// route planner reports itself unavailable instead of offering a control that
+// cannot work. There is no fallback provider and no canned route - the same
+// posture the snow overlay and the object series take about missing data.
+export const mapboxAccessToken: string | null =
+  import.meta.env.VITE_MAPBOX_TOKEN || null;

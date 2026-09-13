@@ -22,6 +22,11 @@ import { ObjectPanel, type IndexStatus } from "./features/objects/panel";
 import { SnowControl } from "./features/snow/control";
 import { SnowDateControl } from "./features/snow/dateControl";
 import { createSearchBar, type SearchPoint } from "./features/search/searchBar";
+import { routingIsConfigured } from "./features/route/directions";
+import { RouteController } from "./features/route/routeController";
+import { RouteLayer } from "./features/route/routeLayer";
+import { RoutePanel } from "./features/route/routePanel";
+import { RoutePrompt } from "./features/route/routePrompt";
 import "./style.css";
 
 const map = new maplibregl.Map({
@@ -57,6 +62,18 @@ document.body.append(snowDate.element);
 // see docs/research/maptiler-outdoor-objects.md.
 const objectPanel = new ObjectPanel(objectSeriesUrl, () => snowOverlay?.date ?? null);
 document.body.append(objectPanel.element);
+
+// A-to-B routing (spec section 8). The whole feature is gated on a configured
+// provider token: with none, no route panel, no prompt, and no route buttons in
+// the object panel appear at all - an absent control is honest, a control that
+// fails when pressed is not. `RouteLayer` needs the style, so the controller is
+// built inside the map's `load` handler below; everything here is inert until
+// then.
+const routePanel = routingIsConfigured() ? new RoutePanel() : null;
+const routePrompt = routingIsConfigured() ? new RoutePrompt() : null;
+let routeController: RouteController | null = null;
+if (routePanel) document.body.append(routePanel.element);
+if (routePrompt) document.body.append(routePrompt.element);
 
 const objectIndex = new ObjectIndexStore(objectIndexUrl, window.location.href);
 let indexLoaded = false;
@@ -126,6 +143,24 @@ map.on("load", async () => {
   }
   // Added last so the selection marker sits above the snow raster.
   highlight = new SelectionHighlight(map);
+
+  if (routePanel && routePrompt) {
+    routeController = new RouteController(new RouteLayer(map), routePanel, routePrompt, {
+      closeObjectPanel: () => {
+        objectPanel.close();
+        highlight?.clear();
+      },
+      setRouteLabels: (labels) => objectPanel.setRouteLabels(labels),
+    });
+    // Registered after the controller exists, which is also what puts the
+    // route buttons in the object panel for the first time; the controller's
+    // own initial labels are a no-op until this call, and they match these.
+    objectPanel.setRouteHandler(
+      (record, role) => routeController?.choose(record, role),
+      { start: "Start here", destination: "End here" },
+    );
+  }
+
   refreshShards();
 });
 

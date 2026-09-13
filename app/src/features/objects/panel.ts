@@ -13,15 +13,17 @@
  * set with `textContent`, never `innerHTML`, so an index name cannot become
  * markup.
  *
- * Layout note: the panel is a bottom sheet in every viewport, and it publishes
- * its own height as `--object-panel-height` on the document element so the
- * bottom-left snow control lifts clear of it instead of being covered. The
- * search bar and the snow control have collided twice before; this is the one
- * coupling point, kept explicit rather than hard-coded in two places.
+ * Layout note: the panel is a bottom sheet in every viewport, and it registers
+ * its laid-out height with `map/bottomSheet.ts` so the bottom-left snow control
+ * lifts clear of it instead of being covered. The search bar and the snow
+ * control have collided twice before; that module is the one coupling point,
+ * and it is shared with the route panel (spec section 8), which is the other
+ * bottom sheet.
  */
 import type { ObjectRecord } from "./objectIndexSchema.ts";
 import type { Selection } from "./selection.ts";
 import { ObjectHistorySection } from "./historyChart.ts";
+import { BottomSheetHeight } from "../../map/bottomSheet.ts";
 
 /** How each selectable class is named to the user, with its map-ish glyph. */
 const KIND_LABELS: Record<ObjectRecord["kind"], { label: string; icon: string }> = {
@@ -35,6 +37,9 @@ const KIND_LABELS: Record<ObjectRecord["kind"], { label: string; icon: string }>
 
 /** State of the index load, so a tap can say why it found nothing. */
 export type IndexStatus = "loading" | "ready" | "unavailable";
+
+/** Which end of a route a selected object is being nominated for (spec section 8.2). */
+export type RouteRole = "start" | "destination";
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -68,8 +73,12 @@ export class ObjectPanel {
   private readonly body: HTMLElement;
   private readonly title: HTMLElement;
   private readonly subtitle: HTMLElement;
+  /** Publishes this sheet's height so the snow control clears it. */
+  private readonly sheetHeight: BottomSheetHeight;
   private onChoose: ((record: ObjectRecord) => void) | null = null;
   private onClosed: (() => void) | null = null;
+  private onRoute: ((record: ObjectRecord, role: RouteRole) => void) | null = null;
+  private routeLabels: { start: string; destination: string } | null = null;
 
   /**
    * `seriesBaseUrl` is `objectSeriesUrl` from `app/src/map/config.ts`, read
@@ -106,10 +115,9 @@ export class ObjectPanel {
     header.append(heading, close);
     this.body = element("div", "object-panel__body");
     this.element.append(header, this.body);
+    this.sheetHeight = new BottomSheetHeight(this.element);
   }
 
-  /** Called when the user picks one of an ambiguous tap's candidates. */
-  private sizeObserver: ResizeObserver | null = null;
 
   setChoiceHandler(handler: (record: ObjectRecord) => void): void {
     this.onChoose = handler;
@@ -120,11 +128,33 @@ export class ObjectPanel {
     this.onClosed = handler;
   }
 
+  /**
+   * Offer the selected object as a route endpoint (spec section 8.2: "the
+   * preferred interaction is selection of OSM objects or searched places").
+   *
+   * Never called means no buttons are rendered at all, which is how an
+   * unconfigured routing provider surfaces: no `VITE_MAPBOX_TOKEN`, no route
+   * actions, rather than a control that fails when pressed. `labels` lets the
+   * route controller re-word the buttons as the plan fills in - "Start here"
+   * becomes "Change start" once a start exists - so the panel never has to
+   * know the route state itself.
+   */
+  setRouteHandler(
+    handler: (record: ObjectRecord, role: RouteRole) => void,
+    labels: { start: string; destination: string },
+  ): void {
+    this.onRoute = handler;
+    this.routeLabels = labels;
+  }
+
+  /** Re-word the route buttons; a no-op until `setRouteHandler` has been called. */
+  setRouteLabels(labels: { start: string; destination: string }): void {
+    if (this.routeLabels) this.routeLabels = labels;
+  }
+
   close(): void {
-    this.sizeObserver?.disconnect();
-    this.sizeObserver = null;
     this.element.hidden = true;
-    document.documentElement.style.setProperty("--object-panel-height", "0px");
+    this.sheetHeight.release();
   }
 
   /**
@@ -221,28 +251,43 @@ export class ObjectPanel {
       asOfIso: this.getAsOfIso(),
     });
 
-    this.body.replaceChildren(history.element);
+    const children: HTMLElement[] = [];
+    const actions = this.routeActions(record);
+    if (actions) children.push(actions);
+    children.push(history.element);
+    this.body.replaceChildren(...children);
     this.reveal();
+  }
+
+  /** The two route-endpoint buttons, or null when routing is not on offer. */
+  private routeActions(record: ObjectRecord): HTMLElement | null {
+    const handler = this.onRoute;
+    const labels = this.routeLabels;
+    if (!handler || !labels) return null;
+
+    const row = element("div", "object-panel__actions");
+    for (const role of ["start", "destination"] as const) {
+      const button = element("button", `object-panel__action object-panel__action--${role}`);
+      button.type = "button";
+      button.append(
+        element("span", "object-panel__action-swatch"),
+        element("span", "object-panel__action-label", labels[role]),
+      );
+      button.addEventListener("click", () => handler(record, role));
+      row.append(button);
+    }
+    return row;
   }
 
   private reveal(): void {
     this.element.hidden = false;
-    this.publishHeight();
     // The panel keeps growing after this point: the snow history section is
-    // filled asynchronously, so measuring once here captures the height of a
-    // panel that still says "Loading history...". That stale value is what
-    // let a real chart push the panel up over the snow control on a 320px
-    // viewport - caught by `npm run check-mobile-layout`, which is exactly
-    // what that check exists for. Track the element instead of the moment.
-    this.sizeObserver?.disconnect();
-    this.sizeObserver = new ResizeObserver(() => this.publishHeight());
-    this.sizeObserver.observe(this.element);
-  }
-
-  /** Publish the laid-out height so the snow control can clear it. */
-  private publishHeight(): void {
-    if (this.element.hidden) return;
-    const height = this.element.getBoundingClientRect().height;
-    document.documentElement.style.setProperty("--object-panel-height", `${Math.round(height)}px`);
+    // filled asynchronously, so measuring once here would capture the height
+    // of a panel that still says "Loading history...". That stale value is
+    // what let a real chart push the panel up over the snow control on a
+    // 320px viewport - caught by `npm run check-mobile-layout`, which is
+    // exactly what that check exists for. `BottomSheetHeight` tracks the
+    // element rather than the moment.
+    this.sheetHeight.track();
   }
 }

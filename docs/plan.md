@@ -18,8 +18,15 @@ handset on 2026-09-11.
 **Spec section 7 - the OSM object panel - completed 2026-09-12** and is live:
 the object index is published to R2 (54 shards, 211,881 objects), selection
 covers all 58 tiles, the daily pipeline samples per-object GFSC, and the panel
-draws real snow history over a trailing 30-day window. **Next work is A-to-B
-routing (item 2)**; item 1 is now watching rather than building.
+draws real snow history over a trailing 30-day window; item 1 is now watching
+rather than building.
+
+**A-to-B routing (item 2) is half done as of 2026-09-13.** The route itself
+works - endpoints picked from the object panel, a real Mapbox Directions
+walking route on the map, distance, and the section 8.6 disclaimer - and is
+committed behind `VITE_MAPBOX_TOKEN`, which is not set anywhere, so the feature
+is invisible on production. **Next work is the two things that block the rest
+of section 8: the owner's Mapbox token, and an elevation source.**
 
 ## Next, in order
 
@@ -44,34 +51,40 @@ routing (item 2)**; item 1 is now watching rather than building.
    - Anything needing to know where Nevaio shows snow must ask
      `nevaio_pipeline.footprint`, not re-derive it.
 
-2. **A-to-B routing + snow/elevation profile (spec section 8).** Needs a hosted
-   routing provider chosen (spec section 15 item 6). **Decided 2026-09-11: the
-   choice is made from a costed shortlist rather than cold** - a written
-   options/pros-cons/recommendation pass covering the routing provider and the
-   elevation/DEM source (section 15 item 7) comes first, then the owner picks.
-   **Decided 2026-09-12: Mapbox Directions (`mapbox/walking`) for routing, and
-   a precomputed Copernicus GLO-30 extract in R2 for elevation.** ORS was the
-   pick for part of that day and was reversed the same day: its staff forbid
-   delivering a key to a browser and it offers no domain restriction, which
-   this app cannot work around without the backend it deliberately lacks.
-   Before building: **create a separate, URL-restricted Mapbox token** - the
-   default token cannot carry URL restrictions, and using it would discard the
-   one control that makes a public token safe - and add `api.mapbox.com` to
-   `connect-src` in `app/public/_headers` in the same change. Mapbox Directions
-   returns no elevation, so the DEM is still needed; `du` the bucket first to
-   confirm a GLO-30 extract fits beside the object index and the series.
-   Fallback for elevation stays MapTiler Terrain-RGB.
-   **The options pass behind this was delivered 2026-09-12:
-   [`research/routing-and-dem-options.md`](research/routing-and-dem-options.md).
-   The owner's pick is now the open step** - section 15 items 6 and 7 stay
-   open, not closed by a recommendation. It recommends OpenRouteService
-   `foot-hiking` (fallback: Mapbox Directions) and a precomputed Copernicus
-   GLO-30 extract into the existing R2 bucket (fallback: MapTiler Terrain-RGB),
-   each conditional on one check the doc names - ORS's real free quota from
-   HeiGIT's own dashboard, and whether a GLO-30 extract fits the R2 headroom. Firm requirement, stronger
-   than sections 8.4-8.5 currently read: observation freshness and quality must
-   be shown clearly and prominently on the route profile, not "where
-   practical". Spec section 15 item 11.
+2. **A-to-B routing + snow/elevation profile (spec section 8) - the route
+   ships, the profile does not.** Shipped 2026-09-13 in
+   `app/src/features/route/`: Mapbox Directions `mapbox/walking`, endpoints
+   nominated from the object panel, route geometry and endpoints on the map,
+   distance, and the section 8.6 disclaimer with every route. Sampling geometry
+   (`routeProfile.ts`) is built and tested but nothing consumes it yet. What is
+   left, in the order it unblocks:
+   - **Create the URL-restricted Mapbox token** (owner console work - see
+     "Open" below). Until it exists and is set as a Netlify env var, the whole
+     feature is invisible on production by design. Nothing else here can be
+     verified against a real route without it.
+   - **An elevation source**, decided 2026-09-12 as a precomputed Copernicus
+     GLO-30 extract in R2 (fallback: MapTiler Terrain-RGB). Mapbox Directions
+     returns no elevation, so this is what section 8.3's elevation gain/loss
+     and section 8.4's elevation profile both wait on. `du` the bucket before
+     building it - see the R2 headroom item below, where the DEM is the one
+     claimant worth sizing.
+   - **Snow along the route**, and this needs a data source the frontend does
+     not have. The published PNG tiles encode freshness as five discrete
+     colours and coverage as alpha, so reading FSC back out of them loses the
+     QA tier entirely - and spec section 15 item 11 makes freshness *and*
+     quality a firm requirement on the profile, stronger than section 8.4-8.5
+     currently read. The honest options are a separate lossless per-date data
+     raster (GF/QA/age packed per pixel) published beside the visual tiles, or
+     narrowing what the profile claims. Size the first before choosing.
+   - **Spec section 15 items 1 and 2 are still open** and should be decided
+     against real numbers rather than in advance: the sampling *mechanism* is
+     now concrete (even spacing in ground metres, endpoints preserved exactly,
+     bounded sample count, default 60 m = GFSC's native pixel), but the
+     spacing value and the definition of "route snow-covered percentage" are
+     not closed by that.
+   - The linked map/profile interaction (section 8.5) has its map side ready -
+     `RouteLayer.setCursor` - and no profile to drive it yet.
+
 3. **Repository structure refactor, stage 4**
    ([`../REFACTOR.md`](../REFACTOR.md)). Stages 1 (dissolve `recon/`) and 2
    (package the pipeline) are done - 2026-09-09; stage 3 (regroup the frontend
@@ -95,16 +108,18 @@ routing (item 2)**; item 1 is now watching rather than building.
   Routing was OpenRouteService for part of that day; it is not, because ORS
   forbids client-side keys and this app has no backend - see the correction in
   that document before reopening the question.
-- **Create the URL-restricted Mapbox token** (owner console work, deferred
-  2026-09-12 until routing is actually built). It must be a **new** token, not
+- **Create the URL-restricted Mapbox token** (owner console work; routing is
+  now built and waiting on it, 2026-09-13). It must be a **new** token, not
   the account's default: Mapbox's URL restrictions do not apply to default
   tokens, so the default would ship unrestricted in a public bundle - the very
   problem that disqualified OpenRouteService. Restrict it to the Netlify
-  origin, set it as a Netlify env var across all contexts, and deliberately do
-  **not** mark it secret, for the same reason `VITE_MAPTILER_API_KEY` is not:
-  Vite inlines `VITE_*` into the client bundle by design, so secret-scanning
-  would fail the build on a value meant to reach the browser. `api.mapbox.com`
-  joins `connect-src` in `app/public/_headers` in the same change.
+  origin, set it as a Netlify env var (`VITE_MAPBOX_TOKEN`) across all
+  contexts, and deliberately do **not** mark it secret, for the same reason
+  `VITE_MAPTILER_API_KEY` is not: Vite inlines `VITE_*` into the client bundle
+  by design, so secret-scanning would fail the build on a value meant to reach
+  the browser. `api.mapbox.com` is already in `connect-src` in
+  `app/public/_headers` (added 2026-09-13 with the routing code), so the token
+  is the only remaining step.
 - **Custom domain in front of the `r2.dev` endpoint** (security F10, optional
   pre-launch). Owner console work; needs an Admin-scoped Cloudflare token.
   `app/public/_headers` pins the bucket host in its CSP and must change in the

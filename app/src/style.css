@@ -91,10 +91,12 @@ body {
 
 .maplibregl-ctrl-bottom-left {
   /* Keep the on-map snow controls above the visible attribution footer, and
-     above the object panel while it is open. The panel publishes its own
-     height as --object-panel-height (see src/features/objects/panel.ts); this is the
-     single place the two layouts are coupled. */
-  bottom: calc(env(safe-area-inset-bottom) + 2.25rem + var(--object-panel-height, 0px));
+     above whichever bottom sheet is open - the object panel (spec section 7)
+     or the route panel (section 8). Each open sheet registers its laid-out
+     height with src/map/bottomSheet.ts, which publishes the tallest one as
+     --bottom-sheet-height; this is the single place the two layouts are
+     coupled. */
+  bottom: calc(env(safe-area-inset-bottom) + 2.25rem + var(--bottom-sheet-height, 0px));
   left: env(safe-area-inset-left);
   transition: bottom 180ms ease;
 }
@@ -582,7 +584,7 @@ body {
 /* Object information panel (spec section 7) - a bottom sheet in every
    viewport, so a phone gets the full width and a desktop gets a card in the
    lower-left. It sits above the attribution footer and lifts the bottom-left
-   snow control by publishing --object-panel-height. */
+   snow control by registering its height with src/map/bottomSheet.ts. */
 .object-panel {
   position: fixed;
   z-index: 6;
@@ -889,4 +891,291 @@ body {
   flex: none;
   font-size: 0.6875rem;
   color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------------------
+   A-to-B route planner (spec section 8)
+
+   Three surfaces: two buttons inside the object panel that nominate the
+   selected object as an endpoint, a thin top strip while only one endpoint is
+   chosen, and the route sheet itself. The sheet deliberately reuses the object
+   panel's tokens rather than introducing a third frosted surface - it is the
+   same kind of thing in the same place, and only one of the two is ever open
+   (see src/features/route/routeController.ts).
+   --------------------------------------------------------------------------- */
+
+.object-panel__actions {
+  display: flex;
+  gap: 0.375rem;
+  margin-bottom: 0.125rem;
+}
+
+.object-panel__action {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  /* Comfortable touch target - docs/spec.md section 10. */
+  min-height: 2.25rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: var(--panel-radius-sm);
+  background: rgba(255, 255, 255, 0.5);
+  font:
+    600 0.75rem/1.2 system-ui,
+    -apple-system,
+    sans-serif;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.object-panel__action:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.object-panel__action:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+/* The swatches match the endpoint colours in routeLayer.ts, which is how the
+   two ends stay distinguishable on the map without HTML markers - that module
+   explains why there are none. Keep these three values in step. */
+.object-panel__action-swatch {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+.object-panel__action--start .object-panel__action-swatch {
+  background: #16a34a;
+}
+
+.object-panel__action--destination .object-panel__action-swatch {
+  background: #b91c1c;
+}
+
+/* Half-planned route strip: below the search bar AND the AS-OF date pill,
+   clear of both the object panel and the bottom-left snow control, so it can
+   coexist with the picking surface. It is not a bottom sheet and does not
+   register a height.
+
+   7.5rem is measured, not guessed: at 320 and 390 CSS px the search bar ends
+   at 52px and the date pill - in its tallest form, the slider - ends at 113px,
+   so 120px clears it. The pill is shorter when the catalogue offers fewer than
+   two dates and absent entirely when no snapshot loaded; the resulting gap is
+   cosmetic, and the alternative (a fourth element publishing its height) buys
+   less than it costs. `npm run check-mobile-layout` asserts the clearance so
+   this cannot regress silently - the search bar and this pill have collided
+   before, which is why that check exists. */
+.route-prompt {
+  position: fixed;
+  z-index: 5;
+  top: calc(env(safe-area-inset-top) + 7.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(92vw, 24rem);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4375rem 0.5rem 0.4375rem 0.75rem;
+  background: var(--panel-bg);
+  backdrop-filter: blur(var(--panel-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--panel-blur)) saturate(180%);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius-sm);
+  box-shadow: var(--panel-shadow);
+  font:
+    500 0.75rem/1.3 system-ui,
+    -apple-system,
+    sans-serif;
+  color: var(--text-primary);
+}
+
+.route-prompt[hidden] {
+  display: none;
+}
+
+.route-prompt__message {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.route-prompt__cancel {
+  flex: none;
+  min-height: 1.75rem;
+  padding: 0 0.625rem;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.5);
+  font:
+    600 0.75rem/1 system-ui,
+    -apple-system,
+    sans-serif;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.route-prompt__cancel:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.route-prompt__cancel:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+.route-panel {
+  position: fixed;
+  z-index: 6;
+  bottom: calc(env(safe-area-inset-bottom) + 2.25rem);
+  left: max(0.625rem, env(safe-area-inset-left));
+  right: max(0.625rem, env(safe-area-inset-right));
+  max-width: 24rem;
+  max-height: 45dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.75rem 0.875rem 0.875rem;
+  background: var(--object-panel-bg);
+  backdrop-filter: blur(var(--object-panel-blur)) saturate(200%);
+  -webkit-backdrop-filter: blur(var(--object-panel-blur)) saturate(200%);
+  border: 1px solid var(--object-panel-border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--panel-shadow);
+  font:
+    500 0.8125rem/1.35 system-ui,
+    -apple-system,
+    sans-serif;
+  color: var(--text-primary);
+  animation: panel-in 220ms ease both;
+}
+
+.route-panel[hidden] {
+  display: none;
+}
+
+.route-panel__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.route-panel__heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.route-panel__title {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.route-panel__subtitle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem 0.75rem;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.route-panel__endpoint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  min-width: 0;
+}
+
+.route-panel__endpoint-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Set from routeLayer.ts's START_COLOR / DESTINATION_COLOR, so the sheet and
+   the map agree on which end is which. */
+.route-panel__swatch {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+.route-panel__close {
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: -0.375rem -0.375rem 0 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  font:
+    400 1.375rem/1 system-ui,
+    -apple-system,
+    sans-serif;
+  cursor: pointer;
+}
+
+.route-panel__close:hover {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.route-panel__close:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+.route-panel__body {
+  margin-top: 0.625rem;
+}
+
+.route-panel__note {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.route-panel__stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.125rem 0.75rem;
+}
+
+.route-panel__stat-label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  align-self: center;
+}
+
+.route-panel__stat-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.route-panel__pending {
+  margin-top: 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Spec section 8.6. Not a footnote and not dismissible: it renders with every
+   calculated route. Amber, the same signal --text-warning already carries for
+   "you are not looking at live data". */
+.route-panel__disclaimer {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(15, 23, 42, 0.1);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text-warning);
 }

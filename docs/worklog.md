@@ -1,5 +1,67 @@
 # Working session log
 
+## 2026-09-13 - The route planner's core, without the profile it still needs
+
+Spec section 8's A-to-B walking route now works end to end on the parts that do
+not need elevation data: pick a start and a destination from the OSM object
+panel, get a real Mapbox Directions `mapbox/walking` route drawn on the map,
+with its distance and the section 8.6 disclaimer. `app/src/features/route/` is
+the new feature folder - `directionsSchema.ts` (the network-facing validator),
+`directions.ts` (the one `fetch`), `routeProfile.ts` (pure geometry),
+`routeLayer.ts`, `routePanel.ts`, `routePrompt.ts`, `routeController.ts`.
+
+**The feature is gated on `VITE_MAPBOX_TOKEN`, and with none it is invisible.**
+No route panel, no prompt, no endpoint buttons in the object panel - rather
+than a control that fails when pressed. The token is still owner console work
+(a *new*, URL-restricted public token; the account default cannot carry URL
+restrictions), so nothing routes on production yet. `api.mapbox.com` joined
+`connect-src` in `app/public/_headers` in this same change, as the guide
+requires; it is `connect-src` only, since no Mapbox script, style, font or tile
+is loaded.
+
+**Two numbers are deliberately not shown, and the panel says so rather than
+going quiet.** Mapbox returns a `duration`, and it is an urban-walking estimate
+with no elevation input at all - on alpine terrain, where ascent sets the time,
+a confident "2 h 10" for a route with 1,400 m of climbing is wrong in the
+direction that gets people caught out after dark. And elevation gain/loss,
+which section 8.3 asks for "where available or derivable", is neither from this
+provider. Both are stated as unavailable in the panel; neither is guessed.
+
+**`resampleAlongRoute` was quadratic and is now linear.** The first version
+called `pointAtDistance` per sample, and that function rebuilds the whole
+cumulative-distance table on every call: an 8,000-vertex route sampled at 60 m
+is ~26 million haversines, seconds of blocked main thread. It now builds the
+table once and walks it with a moving segment cursor. A test asserts the two
+paths agree *exactly* on a deliberately awkward polyline - uneven legs, a
+doubled vertex, a backtrack - because the optimisation is only worth having if
+it is equivalent, and a second test guards the cost.
+
+Sampling spacing defaults to 60 m, GFSC's native pixel size: sampling finer
+than the data's own resolution would invent detail the source raster does not
+have. That is a defensible default for spec section 15 item 1, not a closure of
+it.
+
+**The bottom-sheet height contract is now shared, in `app/src/map/bottomSheet.ts`.**
+There are two bottom sheets, and the bottom-left snow control has to clear
+whichever is open. Each open sheet registers its laid-out height and the module
+publishes the tallest as `--bottom-sheet-height` (renamed from
+`--object-panel-height`, which had become a lie). Heights are observed, not
+measured once - the reason the object panel needed a `ResizeObserver` applies
+unchanged.
+
+*The half-planned strip landed on the AS-OF date pill, and was caught before it
+shipped.* The first placement put it at `top + 3.5rem`; the date pill occupies
+58-113px. Measured at 320 and 390 CSS px, moved to 7.5rem, and
+`npm run check-mobile-layout` now asserts the clearance, so the third instance
+of this app's recurring top-of-screen collision cannot be silent.
+
+Verified with the dev server and a temporary Playwright drive at 390x844: the
+prompt and endpoint markers appear on picking a start, the object panel closes
+when the route panel opens, `--bottom-sheet-height` tracks the route panel, and
+a deliberately invalid token surfaces as "the routing provider rejected this
+app's token (HTTP 401)" rather than a silent failure. `npm test` 168 passing,
+`npm run check-csp` clean, `npm run check-mobile-layout` clean at both widths.
+
 ## 2026-09-12 - Spec section 7 is complete; the backfill merges instead of skipping
 
 The object panel now draws real per-object snow history on the deployed site.

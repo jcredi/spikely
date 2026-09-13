@@ -1,7 +1,8 @@
 /**
  * Guard the narrow-screen layout against the search bar returning underneath
- * MapLibre's top-right navigation controls, and against the object panel
- * covering the bottom-left snow control. This is an emulator baseline, not
+ * MapLibre's top-right navigation controls, against the object panel covering
+ * the bottom-left snow control, and against the route planner's half-planned
+ * strip landing on the AS-OF date pill. This is an emulator baseline, not
  * a replacement for real-handset checks of safe areas, the virtual keyboard,
  * and touch interaction.
  *
@@ -177,6 +178,56 @@ try {
       `${name}: object panel ${Math.round(withPanel.panel.top)}-${Math.round(withPanel.panel.bottom)}px, ` +
         `snow control clears it at ${Math.round(withPanel.snowBottom)}px`,
     );
+
+    // The route planner's half-planned strip (spec section 8.2) sits at the
+    // top, and everything at the top of this app has collided with something
+    // else at least once. It only exists when a routing provider is
+    // configured, so its absence is a state to skip - the same treatment the
+    // AS-OF date pill gets above. Run this leg with a VITE_MAPBOX_TOKEN set
+    // (any non-empty value: the strip appears on selection, before any
+    // request is made) to exercise it.
+    const startButton = page.locator(".object-panel__action--start");
+    if (await startButton.count()) {
+      await startButton.first().click();
+      await page.waitForSelector(".route-prompt:not([hidden])", { timeout: 5_000 });
+      const withPrompt = await page.evaluate(() => {
+        const prompt = document.querySelector(".route-prompt")?.getBoundingClientRect();
+        const dateElement = document.querySelector(".snow-date");
+        const date = dateElement?.hidden ? null : dateElement?.getBoundingClientRect();
+        const search = document.querySelector(".search-bar")?.getBoundingClientRect();
+        if (!prompt || !search) throw new Error("Expected the route prompt to be open");
+        return {
+          prompt: { top: prompt.top, bottom: prompt.bottom, left: prompt.left, right: prompt.right },
+          blockerBottom: Math.max(search.bottom, date ? date.bottom : 0),
+          blocker: date ? "AS-OF date" : "search bar",
+          viewportWidth: window.innerWidth,
+          documentWidth: document.documentElement.scrollWidth,
+        };
+      });
+      if (withPrompt.prompt.top < withPrompt.blockerBottom) {
+        throw new Error(
+          `${name}: the route prompt (top ${withPrompt.prompt.top}px) is under the ` +
+            `${withPrompt.blocker} (bottom ${withPrompt.blockerBottom}px)`,
+        );
+      }
+      if (withPrompt.prompt.left < 0 || withPrompt.prompt.right > withPrompt.viewportWidth) {
+        throw new Error(
+          `${name}: the route prompt (${withPrompt.prompt.left}-${withPrompt.prompt.right}px) ` +
+            `leaves a ${withPrompt.viewportWidth}px screen`,
+        );
+      }
+      if (withPrompt.documentWidth > withPrompt.viewportWidth) {
+        throw new Error(`${name}: horizontal overflow with the route prompt open`);
+      }
+      console.log(
+        `${name}: route prompt ${Math.round(withPrompt.prompt.top)}-` +
+          `${Math.round(withPrompt.prompt.bottom)}px, clears the ${withPrompt.blocker} ` +
+          `at ${Math.round(withPrompt.blockerBottom)}px`,
+      );
+    } else {
+      console.log(`${name}: route prompt skipped (no routing provider configured)`);
+    }
+
     await page.close();
   }
 } finally {
